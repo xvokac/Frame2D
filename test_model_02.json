@@ -1,0 +1,35 @@
+{
+  "nodes": [
+    {"id": 1, "x": 0.0, "y": 0.0},
+    {"id": 2, "x": 0.0, "y": 3.0},
+    {"id": 3, "x": 3.0, "y": 3.0},
+    {"id": 4, "x": 3.0, "y": 0.0}
+  ],
+
+  "dof_nodes": [
+    {"id": 1, "node": 1, "ux": 0, "uy": 1, "rz": 2},
+    {"id": 2, "node": 2, "ux": 3, "uy": 4, "rz": 5},
+    {"id": 3, "node": 3, "ux": 6, "uy": 7, "rz": 8},
+    {"id": 4, "node": 4, "ux": 9, "uy": 10, "rz": 11}
+  ],
+
+  "sections": [
+    {"id": 1, "E": 210000000, "A": 1820e-6, "I": 5.72e-6}
+  ],
+
+  "elements": [
+    {"id": 1, "i": 1, "j": 2, "section": 1},
+    {"id": 2, "i": 2, "j": 3, "section": 1},
+    {"id": 3, "i": 3, "j": 4, "section": 1}
+  ],
+
+  "supports": [
+    {"node": 1, "ux": true, "uy": true},
+    {"node": 4, "ux": true, "uy": true}
+  ],
+
+ 
+  "element_loads": [
+    {"element": 2, "qx": 0.0, "qz": -30.0}
+  ]
+}
