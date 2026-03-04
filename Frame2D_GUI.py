@@ -29,6 +29,10 @@ class Frame2DGui:
         self.pending_element_nodes = []
         self.pending_release_element = None
 
+        self.view_scale = 40.0
+        self.view_origin_x = 80.0
+        self.view_origin_y = 620.0
+
         self._build_ui()
 
     def _build_ui(self):
@@ -52,6 +56,9 @@ class Frame2DGui:
         self.canvas = tk.Canvas(self.root, width=1000, height=700, bg="white")
         self.canvas.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
         self.canvas.bind("<Button-1>", self.on_canvas_click)
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas.bind("<Button-4>", self.on_mouse_wheel_linux)
+        self.canvas.bind("<Button-5>", self.on_mouse_wheel_linux)
 
     def set_mode(self, mode: str):
         self.mode = mode
@@ -60,12 +67,26 @@ class Frame2DGui:
         self.status_var.set(f"Režim: {mode}")
 
     def to_canvas(self, x, y):
-        scale = 40.0
-        return 80 + x * scale, 620 - y * scale
+        return self.view_origin_x + x * self.view_scale, self.view_origin_y - y * self.view_scale
 
     def from_canvas(self, cx, cy):
-        scale = 40.0
-        return (cx - 80) / scale, (620 - cy) / scale
+        return (cx - self.view_origin_x) / self.view_scale, (self.view_origin_y - cy) / self.view_scale
+
+    def zoom_at(self, cx, cy, factor):
+        wx, wy = self.from_canvas(cx, cy)
+        new_scale = self.view_scale * factor
+        self.view_scale = max(8.0, min(300.0, new_scale))
+        self.view_origin_x = cx - wx * self.view_scale
+        self.view_origin_y = cy + wy * self.view_scale
+        self.draw_scene()
+
+    def on_mouse_wheel(self, event):
+        factor = 1.1 if event.delta > 0 else 1 / 1.1
+        self.zoom_at(event.x, event.y, factor)
+
+    def on_mouse_wheel_linux(self, event):
+        factor = 1.1 if event.num == 4 else 1 / 1.1
+        self.zoom_at(event.x, event.y, factor)
 
     def draw_scene(self):
         self.canvas.delete("all")
