@@ -739,10 +739,10 @@ class Model:
             plt.show()
 
     #print reakce
-    def print_reactions(self):
+    def format_reactions(self):
         R = self.compute_reactions()
 
-        print("\nREACTIONS:")
+        lines = ["REACTIONS:"]
 
         for dn in self.dof_nodes.values():
             node = dn.node_id
@@ -752,13 +752,21 @@ class Model:
             mz = R.get(dn.rz)
 
             if rx is not None:
-                print(f"Node {node} Rx = {rx:.6e}")
+                lines.append(f"Node {node} Rx = {rx:.6e}")
 
             if ry is not None:
-                print(f"Node {node} Ry = {ry:.6e}")
+                lines.append(f"Node {node} Ry = {ry:.6e}")
 
             if mz is not None:
-                print(f"Node {node} Mz = {mz:.6e}")
+                lines.append(f"Node {node} Mz = {mz:.6e}")
+
+        if len(lines) == 1:
+            lines.append("Žádné reakce k zobrazení.")
+
+        return "\n".join(lines)
+
+    def print_reactions(self):
+        print("\n" + self.format_reactions())
 
                 
     #koncové síly na prvku

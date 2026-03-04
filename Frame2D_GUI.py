@@ -60,6 +60,14 @@ class Frame2DGui:
         self.canvas.bind("<Button-4>", self.on_mouse_wheel_linux)
         self.canvas.bind("<Button-5>", self.on_mouse_wheel_linux)
 
+        reactions_frame = ttk.LabelFrame(self.root, text="Výpis reakcí")
+        reactions_frame.pack(fill=tk.BOTH, expand=False, padx=6, pady=(0, 6))
+
+        self.reactions_text = tk.Text(reactions_frame, height=8, wrap=tk.NONE)
+        self.reactions_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.reactions_text.insert("1.0", "Po výpočtu se zde zobrazí reakce.")
+        self.reactions_text.configure(state=tk.DISABLED)
+
     def set_mode(self, mode: str):
         self.mode = mode
         self.pending_element_nodes = []
@@ -470,7 +478,7 @@ class Frame2DGui:
         try:
             model = Model.from_json(tmp_path)
             model.solve()
-            model.print_reactions()
+            self.show_reactions(model.format_reactions())
             model.plot_deformed_shape()
             model.plot_internal_forces("M")
             model.plot_internal_forces("V")
@@ -478,6 +486,12 @@ class Frame2DGui:
             model.show_all_plots()
         except Exception as exc:
             messagebox.showerror("Solver chyba", str(exc))
+
+    def show_reactions(self, text):
+        self.reactions_text.configure(state=tk.NORMAL)
+        self.reactions_text.delete("1.0", tk.END)
+        self.reactions_text.insert("1.0", text)
+        self.reactions_text.configure(state=tk.DISABLED)
 
 
 def main():
