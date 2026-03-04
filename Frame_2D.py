@@ -1134,8 +1134,8 @@ class Model:
                         dn_i = self.dof_nodes[elem.i]
                         dn_j = self.dof_nodes[elem.j]
 
-                        node_i = self.nodes[dn_i.node]
-                        node_j = self.nodes[dn_j.node]
+                        node_i = self.nodes[dn_i.node_id]
+                        node_j = self.nodes[dn_j.node_id]
 
                         dx = node_j.x - node_i.x
                         dy = node_j.y - node_i.y
@@ -1163,28 +1163,14 @@ class Model:
                         )
                         ax.add_patch(circle)
 
-                  
-        
-#Testy
-model = Model.from_json("test_model_01.json")
 
-U = model.solve()
-R = model.compute_reactions()
-print(R)
-
-
-print(model.U)
-
-model.print_reactions()
-
-model.plot_deformed_shape() 
-
-model.plot_internal_forces("M")
-model.plot_internal_forces("V")
-model.plot_internal_forces("N")
-
-
-
-
-
-
+if __name__ == '__main__':
+    model = Model.from_json('test_model_01.json')
+    model.solve()
+    print(model.compute_reactions())
+    print(model.U)
+    model.print_reactions()
+    model.plot_deformed_shape()
+    model.plot_internal_forces('M')
+    model.plot_internal_forces('V')
+    model.plot_internal_forces('N')
