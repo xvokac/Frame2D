@@ -570,7 +570,7 @@ class Model:
         return self.U[idx]
     
     #vykreslení deformovaného tvaru kce
-    def plot_deformed_shape(self, scale=None, n_points=20):
+    def plot_deformed_shape(self, scale=None, n_points=20, show=False):
         # auto scale
         if scale is None:
             max_disp = max(abs(self.U))
@@ -735,7 +735,8 @@ class Model:
         ax.grid(True)
         ax.margins(0.2)
         plt.title(r"Deformation and values $(u^2+v^2)^{1/2}$")
-        plt.show()
+        if show:
+            plt.show()
 
     #print reakce
     def print_reactions(self):
@@ -887,7 +888,7 @@ class Model:
 
         return qx, qz
 
-    def plot_internal_forces(self, kind="M", scale=None):
+    def plot_internal_forces(self, kind="M", scale=None, show=False):
         if scale is None:
             scale = self.auto_scale(kind)
         plt.figure()
@@ -907,6 +908,11 @@ class Model:
             self.plot_element_diagram(elem, kind, scale)
         plt.axis("equal")
         plt.title(kind)
+        if show:
+            plt.show()
+
+    @staticmethod
+    def show_all_plots():
         plt.show()
 
     #autoscale pro graf vnitřních sil
@@ -1174,3 +1180,4 @@ if __name__ == '__main__':
     model.plot_internal_forces('M')
     model.plot_internal_forces('V')
     model.plot_internal_forces('N')
+    model.show_all_plots()
