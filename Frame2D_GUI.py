@@ -42,6 +42,7 @@ class Frame2DGui:
         ttk.Button(toolbar, text="Nodal loads", command=lambda: self.set_mode("add_nodal_load")).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Element load", command=lambda: self.set_mode("add_element_load")).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Vnitřní kloub", command=lambda: self.set_mode("add_release_pick_element")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Load JSON", command=self.load_json).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Uložit JSON", command=self.save_json).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Výpočet + grafy", command=self.solve_and_plot).pack(side=tk.LEFT, padx=2)
 
@@ -401,6 +402,41 @@ class Frame2DGui:
 
         messagebox.showinfo("Uloženo", f"Model uložen do:\n{path}")
 
+    def load_json(self):
+        path = filedialog.askopenfilename(title="Načíst model", filetypes=[("JSON", "*.json")])
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            self.nodes = {n["id"]: n for n in data.get("nodes", [])}
+            self.dof_nodes = {d["id"]: {"id": d["id"], "node": d["node"], "ux": d["ux"], "uy": d["uy"], "rz": d["rz"]} for d in data.get("dof_nodes", [])}
+            self.sections = {s["id"]: s for s in data.get("sections", [])}
+            self.elements = {
+                e["id"]: {"id": e["id"], "i": e["i"], "j": e["j"], "section": e["section"]}
+                for e in data.get("elements", [])
+            }
+            self.supports = data.get("supports", [])
+            self.nodal_loads = data.get("nodal_loads", [])
+            self.element_loads = data.get("element_loads", [])
+
+            self.next_node_id = max(self.nodes.keys(), default=0) + 1
+            self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
+            self.next_section_id = max(self.sections.keys(), default=0) + 1
+            self.next_element_id = max(self.elements.keys(), default=0) + 1
+
+            max_dof = 0
+            for d in self.dof_nodes.values():
+                max_dof = max(max_dof, d["ux"], d["uy"], d["rz"])
+            self.next_dof_id = max_dof + 1
+
+            self.draw_scene()
+            messagebox.showinfo("Načteno", f"Model načten z:\n{path}")
+        except Exception as exc:
+            messagebox.showerror("Load JSON", f"Nepodařilo se načíst model:\n{exc}")
+
     def solve_and_plot(self):
         if not self.elements or not self.nodes:
             messagebox.showwarning("Solver", "Model musí mít aspoň nody a elementy.")
@@ -418,6 +454,7 @@ class Frame2DGui:
             model.plot_internal_forces("M")
             model.plot_internal_forces("V")
             model.plot_internal_forces("N")
+            model.show_all_plots()
         except Exception as exc:
             messagebox.showerror("Solver chyba", str(exc))
 
