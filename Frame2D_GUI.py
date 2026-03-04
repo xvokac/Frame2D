@@ -46,6 +46,7 @@ class Frame2DGui:
         ttk.Button(toolbar, text="Nodal loads", command=lambda: self.set_mode("add_nodal_load")).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Element load", command=lambda: self.set_mode("add_element_load")).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Vnitřní kloub", command=lambda: self.set_mode("add_release_pick_element")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Editace zadání", command=self.open_data_editor).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Load JSON", command=self.load_json).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Uložit JSON", command=self.save_json).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Výpočet + grafy", command=self.solve_and_plot).pack(side=tk.LEFT, padx=2)
@@ -105,6 +106,8 @@ class Frame2DGui:
             xi, yi = self.to_canvas(ni["x"], ni["y"])
             xj, yj = self.to_canvas(nj["x"], nj["y"])
             self.canvas.create_line(xi, yi, xj, yj, fill="black", width=2)
+            self._draw_release_symbol_if_needed(e, "i", xi, yi, xj, yj)
+            self._draw_release_symbol_if_needed(e, "j", xj, yj, xi, yi)
             mx, my = (xi + xj) / 2, (yi + yj) / 2
             self.canvas.create_text(mx, my - 8, text=f"E{e['id']}", fill="darkgreen")
 
@@ -113,6 +116,58 @@ class Frame2DGui:
             r = 4
             self.canvas.create_oval(x - r, y - r, x + r, y + r, fill="royalblue")
             self.canvas.create_text(x + 12, y - 10, text=f"N{n_id}", fill="blue")
+
+        self._draw_supports()
+
+    def _draw_supports(self):
+        for support in self.supports:
+            dof_node = self.dof_nodes.get(support.get("node"))
+            if not dof_node:
+                continue
+            node = self.nodes.get(dof_node["node"])
+            if not node:
+                continue
+            x, y = self.to_canvas(node["x"], node["y"])
+            ux = bool(support.get("ux"))
+            uy = bool(support.get("uy"))
+            rz = bool(support.get("rz"))
+
+            if ux and uy and rz:
+                self.canvas.create_rectangle(x - 8, y + 8, x + 8, y + 24, outline="firebrick", width=2)
+            elif ux and uy:
+                self.canvas.create_polygon(x, y + 8, x - 10, y + 24, x + 10, y + 24, outline="firebrick", fill="", width=2)
+            elif uy:
+                self.canvas.create_polygon(x, y + 8, x - 10, y + 20, x + 10, y + 20, outline="firebrick", fill="", width=2)
+                self.canvas.create_oval(x - 9, y + 20, x - 3, y + 26, outline="firebrick", width=2)
+                self.canvas.create_oval(x + 3, y + 20, x + 9, y + 26, outline="firebrick", width=2)
+            else:
+                self.canvas.create_text(x, y + 18, text="S", fill="firebrick")
+
+    def _get_primary_dof_node_id(self, node_id):
+        candidates = [did for did, d in self.dof_nodes.items() if d["node"] == node_id]
+        if not candidates:
+            return None
+        return min(candidates)
+
+    def _draw_release_symbol_if_needed(self, element, end_key, x, y, ox, oy):
+        did = element[end_key]
+        dof = self.dof_nodes.get(did)
+        if not dof:
+            return
+        primary = self._get_primary_dof_node_id(dof["node"])
+        if primary is None or did == primary:
+            return
+        vx = ox - x
+        vy = oy - y
+        length = math.hypot(vx, vy)
+        if length < 1e-9:
+            return
+        ux = vx / length
+        uy = vy / length
+        cx = x + ux * 10
+        cy = y + uy * 10
+        r = 5
+        self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill="white", outline="purple", width=2)
 
     def find_nearest_node(self, cx, cy, tol=12):
         best = None
@@ -492,6 +547,214 @@ class Frame2DGui:
         self.reactions_text.delete("1.0", tk.END)
         self.reactions_text.insert("1.0", text)
         self.reactions_text.configure(state=tk.DISABLED)
+
+    def open_data_editor(self):
+        editor = tk.Toplevel(self.root)
+        editor.title("Editace zadání")
+        editor.geometry("980x560")
+
+        notebook = ttk.Notebook(editor)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        schemas = {
+            "sections": ["id", "E", "A", "I"],
+            "nodes": ["id", "x", "y"],
+            "elements": ["id", "i", "j", "section"],
+            "supports": ["node", "ux", "uy", "rz"],
+            "nodal loads": ["dof_node", "Fx", "Fy", "Mz"],
+            "element load": ["element", "qx", "qz"],
+            "release rotation": ["element", "end", "node", "dof_node"],
+        }
+
+        data_tables = {
+            "sections": [dict(v) for v in self.sections.values()],
+            "nodes": [dict(v) for v in self.nodes.values()],
+            "elements": [dict(v) for v in self.elements.values()],
+            "supports": [dict(v) for v in self.supports],
+            "nodal loads": [dict(v) for v in self.nodal_loads],
+            "element load": [dict(v) for v in self.element_loads],
+            "release rotation": self._collect_release_rows(),
+        }
+
+        trees = {}
+
+        for tab_name, columns in schemas.items():
+            frame = ttk.Frame(notebook)
+            notebook.add(frame, text=tab_name)
+            tree = ttk.Treeview(frame, columns=columns, show="headings", height=14)
+            for col in columns:
+                tree.heading(col, text=col)
+                tree.column(col, width=110, anchor="center")
+            tree.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+            trees[tab_name] = tree
+
+            btns = ttk.Frame(frame)
+            btns.pack(fill=tk.X, pady=6)
+            if tab_name == "release rotation":
+                ttk.Label(btns, text="Tabulka je pouze informativní (odvozeno z elementů + dof_nodes).").pack(side=tk.LEFT, padx=4)
+            else:
+                ttk.Button(btns, text="Přidat řádek", command=lambda n=tab_name: self._add_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
+                ttk.Button(btns, text="Upravit řádek", command=lambda n=tab_name: self._edit_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
+                ttk.Button(btns, text="Smazat řádek", command=lambda n=tab_name: self._delete_table_row(n, data_tables, trees)).pack(side=tk.LEFT, padx=4)
+
+            self._refresh_tree(tree, columns, data_tables[tab_name])
+
+        def apply_changes():
+            try:
+                self._apply_editor_tables(data_tables)
+                self.draw_scene()
+                editor.destroy()
+                messagebox.showinfo("Editace", "Data byla aktualizována.")
+            except Exception as exc:
+                messagebox.showerror("Editace", str(exc))
+
+        ttk.Button(editor, text="Použít změny", command=apply_changes).pack(pady=(0, 8))
+
+    def _collect_release_rows(self):
+        rows = []
+        for element in self.elements.values():
+            for end in ("i", "j"):
+                did = element[end]
+                dof = self.dof_nodes.get(did)
+                if not dof:
+                    continue
+                primary = self._get_primary_dof_node_id(dof["node"])
+                if primary is not None and did != primary:
+                    rows.append({"element": element["id"], "end": end, "node": dof["node"], "dof_node": did})
+        return rows
+
+    def _refresh_tree(self, tree, columns, rows):
+        tree.delete(*tree.get_children())
+        for idx, row in enumerate(rows):
+            tree.insert("", tk.END, iid=str(idx), values=[row.get(c, "") for c in columns])
+
+    def _edit_row_dialog(self, title, columns, initial=None):
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        entries = {}
+        initial = initial or {}
+        for i, col in enumerate(columns):
+            ttk.Label(win, text=col).grid(row=i, column=0, padx=6, pady=4, sticky="w")
+            ent = ttk.Entry(win)
+            ent.insert(0, str(initial.get(col, "")))
+            ent.grid(row=i, column=1, padx=6, pady=4)
+            entries[col] = ent
+
+        result = {"row": None}
+
+        def save_row():
+            row = {col: entries[col].get().strip() for col in columns}
+            result["row"] = row
+            win.destroy()
+
+        ttk.Button(win, text="Uložit", command=save_row).grid(row=len(columns), column=0, columnspan=2, pady=8)
+        win.transient(self.root)
+        win.grab_set()
+        self.root.wait_window(win)
+        return result["row"]
+
+    def _add_table_row(self, tab_name, columns, data_tables, trees):
+        row = self._edit_row_dialog(f"Přidat: {tab_name}", columns)
+        if row is None:
+            return
+        data_tables[tab_name].append(row)
+        self._refresh_tree(trees[tab_name], columns, data_tables[tab_name])
+
+    def _edit_table_row(self, tab_name, columns, data_tables, trees):
+        tree = trees[tab_name]
+        sel = tree.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        row = self._edit_row_dialog(f"Upravit: {tab_name}", columns, data_tables[tab_name][idx])
+        if row is None:
+            return
+        data_tables[tab_name][idx] = row
+        self._refresh_tree(tree, columns, data_tables[tab_name])
+
+    def _delete_table_row(self, tab_name, data_tables, trees):
+        tree = trees[tab_name]
+        sel = tree.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        data_tables[tab_name].pop(idx)
+        columns = tree["columns"]
+        self._refresh_tree(tree, columns, data_tables[tab_name])
+
+    @staticmethod
+    def _to_bool(value):
+        return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+    def _apply_editor_tables(self, data_tables):
+        sections = {
+            int(r["id"]): {"id": int(r["id"]), "E": float(r["E"]), "A": float(r["A"]), "I": float(r["I"])}
+            for r in data_tables["sections"]
+        }
+        nodes = {int(r["id"]): {"id": int(r["id"]), "x": float(r["x"]), "y": float(r["y"])} for r in data_tables["nodes"]}
+
+        elements = {}
+        for r in data_tables["elements"]:
+            eid = int(r["id"])
+            elements[eid] = {"id": eid, "i": int(r["i"]), "j": int(r["j"]), "section": int(r["section"])}
+
+        supports = [
+            {
+                "node": int(r["node"]),
+                "ux": self._to_bool(r["ux"]),
+                "uy": self._to_bool(r["uy"]),
+                "rz": self._to_bool(r["rz"]),
+            }
+            for r in data_tables["supports"]
+        ]
+        nodal_loads = [
+            {
+                "dof_node": int(r["dof_node"]),
+                "Fx": float(r["Fx"]),
+                "Fy": float(r["Fy"]),
+                "Mz": float(r["Mz"]),
+            }
+            for r in data_tables["nodal loads"]
+        ]
+        element_loads = [
+            {"element": int(r["element"]), "qx": float(r["qx"]), "qz": float(r["qz"])}
+            for r in data_tables["element load"]
+        ]
+
+        missing_sections = [e["id"] for e in elements.values() if e["section"] not in sections]
+        if missing_sections:
+            raise ValueError(f"Elementy odkazují na neexistující section: {missing_sections}")
+
+        unknown_dof_in_elements = sorted({did for e in elements.values() for did in (e["i"], e["j"]) if did not in self.dof_nodes})
+        if unknown_dof_in_elements:
+            raise ValueError(f"Elementy odkazují na neexistující dof_node: {unknown_dof_in_elements}")
+
+        unknown_dof_in_supports = sorted({s["node"] for s in supports if s["node"] not in self.dof_nodes})
+        if unknown_dof_in_supports:
+            raise ValueError(f"Supports odkazují na neexistující dof_node: {unknown_dof_in_supports}")
+
+        unknown_dof_in_nodal_loads = sorted({l["dof_node"] for l in nodal_loads if l["dof_node"] not in self.dof_nodes})
+        if unknown_dof_in_nodal_loads:
+            raise ValueError(f"Nodal loads odkazují na neexistující dof_node: {unknown_dof_in_nodal_loads}")
+
+        unknown_elements_in_loads = sorted({l["element"] for l in element_loads if l["element"] not in elements})
+        if unknown_elements_in_loads:
+            raise ValueError(f"Element load odkazuje na neexistující element: {unknown_elements_in_loads}")
+
+        # release rotation tab je odvozený pohled; změny zde se zatím neaplikují zpět
+        self.sections = sections
+        self.nodes = nodes
+        self.elements = elements
+        self.supports = supports
+        self.nodal_loads = nodal_loads
+        self.element_loads = element_loads
+
+        self.next_section_id = max(self.sections.keys(), default=0) + 1
+        self.next_node_id = max(self.nodes.keys(), default=0) + 1
+        self.next_element_id = max(self.elements.keys(), default=0) + 1
+        self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
+        max_dof = max((max(d["ux"], d["uy"], d["rz"]) for d in self.dof_nodes.values()), default=0)
+        self.next_dof_id = max_dof + 1
 
 
 def main():
