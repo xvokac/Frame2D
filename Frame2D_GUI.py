@@ -118,6 +118,8 @@ class Frame2DGui:
             self.canvas.create_text(x + 12, y - 10, text=f"N{n_id}", fill="blue")
 
         self._draw_supports()
+        self._draw_nodal_loads()
+        self._draw_element_loads()
 
     def _draw_supports(self):
         for support in self.supports:
@@ -142,6 +144,86 @@ class Frame2DGui:
                 self.canvas.create_oval(x + 3, y + 20, x + 9, y + 26, outline="firebrick", width=2)
             else:
                 self.canvas.create_text(x, y + 18, text="S", fill="firebrick")
+
+    def _draw_arrow(self, x1, y1, x2, y2, color="tomato", width=2):
+        self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width, arrow=tk.LAST)
+
+    def _draw_nodal_loads(self):
+        for load in self.nodal_loads:
+            dof_node = self.dof_nodes.get(load.get("dof_node"))
+            if not dof_node:
+                continue
+            node = self.nodes.get(dof_node["node"])
+            if not node:
+                continue
+
+            x, y = self.to_canvas(node["x"], node["y"])
+            fx = float(load.get("Fx", 0.0))
+            fy = float(load.get("Fy", 0.0))
+            mz = float(load.get("Mz", 0.0))
+
+            if abs(fx) > 1e-12:
+                sign = 1 if fx > 0 else -1
+                self._draw_arrow(x - 18 * sign, y - 14, x + 18 * sign, y - 14)
+                self.canvas.create_text(x, y - 26, text=f"Fx={fx:g}", fill="tomato", font=("TkDefaultFont", 8))
+
+            if abs(fy) > 1e-12:
+                sign = -1 if fy > 0 else 1
+                self._draw_arrow(x + 14, y + 18 * sign, x + 14, y - 18 * sign)
+                self.canvas.create_text(x + 38, y, text=f"Fy={fy:g}", fill="tomato", font=("TkDefaultFont", 8))
+
+            if abs(mz) > 1e-12:
+                r = 12
+                self.canvas.create_arc(x - r, y - r, x + r, y + r, start=30, extent=300, style=tk.ARC, outline="tomato", width=2)
+                if mz > 0:
+                    self._draw_arrow(x + 8, y - 8, x + 10, y - 18)
+                else:
+                    self._draw_arrow(x + 10, y - 18, x + 8, y - 8)
+                self.canvas.create_text(x - 26, y - 18, text=f"Mz={mz:g}", fill="tomato", font=("TkDefaultFont", 8))
+
+    def _draw_element_loads(self):
+        for load in self.element_loads:
+            element = self.elements.get(load.get("element"))
+            if not element:
+                continue
+            ni = self.nodes.get(self.dof_nodes.get(element["i"], {}).get("node"))
+            nj = self.nodes.get(self.dof_nodes.get(element["j"], {}).get("node"))
+            if not ni or not nj:
+                continue
+
+            x1, y1 = self.to_canvas(ni["x"], ni["y"])
+            x2, y2 = self.to_canvas(nj["x"], nj["y"])
+            dx = x2 - x1
+            dy = y2 - y1
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                continue
+            ux = dx / length
+            uy = dy / length
+            nx = -uy
+            ny = ux
+
+            qx = float(load.get("qx", 0.0))
+            qz = float(load.get("qz", 0.0))
+
+            if abs(qx) > 1e-12:
+                sign = 1 if qx > 0 else -1
+                mx = (x1 + x2) / 2
+                my = (y1 + y2) / 2
+                self._draw_arrow(mx - 22 * ux * sign, my - 22 * uy * sign, mx + 22 * ux * sign, my + 22 * uy * sign)
+                self.canvas.create_text(mx + 10 * nx, my + 10 * ny, text=f"qx={qx:g}", fill="tomato", font=("TkDefaultFont", 8))
+
+            if abs(qz) > 1e-12:
+                sign = -1 if qz > 0 else 1
+                for t in (0.2, 0.5, 0.8):
+                    px = x1 + t * dx
+                    py = y1 + t * dy
+                    sx = px + 18 * nx * sign
+                    sy = py + 18 * ny * sign
+                    self._draw_arrow(sx, sy, px, py)
+                tx = (x1 + x2) / 2 + 26 * nx * sign
+                ty = (y1 + y2) / 2 + 26 * ny * sign
+                self.canvas.create_text(tx, ty, text=f"qz={qz:g}", fill="tomato", font=("TkDefaultFont", 8))
 
     def _get_primary_dof_node_id(self, node_id):
         candidates = [did for did, d in self.dof_nodes.items() if d["node"] == node_id]
@@ -369,6 +451,7 @@ class Frame2DGui:
             dn = self.get_primary_dof_node_for_node(node_id)
             self.supports.append({"node": dn, "ux": ux.get(), "uy": uy.get(), "rz": rz.get()})
             win.destroy()
+            self.draw_scene()
 
         ttk.Button(win, text="Uložit", command=save).pack(pady=8)
 
@@ -397,6 +480,7 @@ class Frame2DGui:
             dn = self.get_primary_dof_node_for_node(node_id)
             self.nodal_loads.append({"dof_node": dn, "Fx": Fx, "Fy": Fy, "Mz": Mz})
             win.destroy()
+            self.draw_scene()
 
         ttk.Button(win, text="Uložit", command=save).grid(row=4, column=0, columnspan=2, pady=8)
 
@@ -424,6 +508,7 @@ class Frame2DGui:
 
             self.element_loads.append({"element": element_id, "qx": qx, "qz": qz})
             win.destroy()
+            self.draw_scene()
 
         ttk.Button(win, text="Uložit", command=save).grid(row=2, column=0, columnspan=2, pady=8)
 
