@@ -335,6 +335,41 @@ class Model:
             if load.element in element_id_map
         ]
 
+    def to_json_data(self):
+        return {
+            "nodes": [
+                {"id": n.id, "x": n.x, "y": n.y}
+                for n in sorted(self.nodes.values(), key=lambda n: n.id)
+            ],
+            "dof_nodes": [
+                {
+                    "id": d.id,
+                    "node": d.node_id,
+                    "ux": d.ux,
+                    "uy": d.uy,
+                    "rz": d.rz,
+                }
+                for d in sorted(self.dof_nodes.values(), key=lambda d: d.id)
+            ],
+            "sections": [
+                {"id": s.id, "E": s.E, "A": s.A, "I": s.I}
+                for s in sorted(self.sections.values(), key=lambda s: s.id)
+            ],
+            "elements": [
+                {"id": e.id, "i": e.i, "j": e.j, "section": e.section_id}
+                for e in sorted(self.elements.values(), key=lambda e: e.id)
+            ],
+            "supports": sorted(self.supports, key=lambda s: s.get("node", 0)),
+            "nodal_loads": [
+                {"dof_node": l.dof_node, "Fx": l.Fx, "Fy": l.Fy, "Mz": l.Mz}
+                for l in sorted(self.nodal_loads, key=lambda l: l.dof_node)
+            ],
+            "element_loads": [
+                {"element": l.element, "qx": l.qx, "qz": l.qz}
+                for l in sorted(self.element_loads, key=lambda l: l.element)
+            ],
+        }
+
 
     #Fixni DOF
     def get_fixed_dofs(self):

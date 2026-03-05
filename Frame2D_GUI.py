@@ -49,6 +49,7 @@ class Frame2DGui:
         ttk.Button(toolbar, text="Editace zadání", command=self.open_data_editor).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Load JSON", command=self.load_json).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Uložit JSON", command=self.save_json).pack(side=tk.LEFT, padx=8)
+        ttk.Button(toolbar, text="Normalizovat ID", command=self.normalize_to_canvas).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Výpočet + grafy", command=self.solve_and_plot).pack(side=tk.LEFT, padx=2)
 
         self.status_var = tk.StringVar(value="Režim: žádný")
@@ -579,32 +580,53 @@ class Frame2DGui:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
-            self.nodes = {n["id"]: n for n in data.get("nodes", [])}
-            self.dof_nodes = {d["id"]: {"id": d["id"], "node": d["node"], "ux": d["ux"], "uy": d["uy"], "rz": d["rz"]} for d in data.get("dof_nodes", [])}
-            self.sections = {s["id"]: s for s in data.get("sections", [])}
-            self.elements = {
-                e["id"]: {"id": e["id"], "i": e["i"], "j": e["j"], "section": e["section"]}
-                for e in data.get("elements", [])
-            }
-            self.supports = data.get("supports", [])
-            self.nodal_loads = data.get("nodal_loads", [])
-            self.element_loads = data.get("element_loads", [])
-
-            self.next_node_id = max(self.nodes.keys(), default=0) + 1
-            self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
-            self.next_section_id = max(self.sections.keys(), default=0) + 1
-            self.next_element_id = max(self.elements.keys(), default=0) + 1
-
-            max_dof = 0
-            for d in self.dof_nodes.values():
-                max_dof = max(max_dof, d["ux"], d["uy"], d["rz"])
-            self.next_dof_id = max_dof + 1
-
-            self.draw_scene()
+            self._load_data_dict(data)
             messagebox.showinfo("Načteno", f"Model načten z:\n{path}")
         except Exception as exc:
             messagebox.showerror("Load JSON", f"Nepodařilo se načíst model:\n{exc}")
+
+    def _load_data_dict(self, data):
+        self.nodes = {n["id"]: n for n in data.get("nodes", [])}
+        self.dof_nodes = {
+            d["id"]: {"id": d["id"], "node": d["node"], "ux": d["ux"], "uy": d["uy"], "rz": d["rz"]}
+            for d in data.get("dof_nodes", [])
+        }
+        self.sections = {s["id"]: s for s in data.get("sections", [])}
+        self.elements = {
+            e["id"]: {"id": e["id"], "i": e["i"], "j": e["j"], "section": e["section"]}
+            for e in data.get("elements", [])
+        }
+        self.supports = data.get("supports", [])
+        self.nodal_loads = data.get("nodal_loads", [])
+        self.element_loads = data.get("element_loads", [])
+
+        self.next_node_id = max(self.nodes.keys(), default=0) + 1
+        self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
+        self.next_section_id = max(self.sections.keys(), default=0) + 1
+        self.next_element_id = max(self.elements.keys(), default=0) + 1
+
+        max_dof = 0
+        for d in self.dof_nodes.values():
+            max_dof = max(max_dof, d["ux"], d["uy"], d["rz"])
+        self.next_dof_id = max_dof + 1
+
+        self.draw_scene()
+
+    def normalize_to_canvas(self):
+        if not self.nodes:
+            messagebox.showwarning("Normalizace", "Není co normalizovat.")
+            return
+
+        tmp_path = "_frame2d_gui_temp.json"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(self.build_json_model(), f, indent=2)
+
+        try:
+            model = Model.from_json(tmp_path)
+            self._load_data_dict(model.to_json_data())
+            messagebox.showinfo("Normalizace", "ID byla normalizována a přenesena do canvas i JSON dat.")
+        except Exception as exc:
+            messagebox.showerror("Normalizace", str(exc))
 
     def solve_and_plot(self):
         if not self.elements or not self.nodes:
@@ -618,6 +640,7 @@ class Frame2DGui:
         try:
             model = Model.from_json(tmp_path)
             model.solve()
+            self._load_data_dict(model.to_json_data())
             self.show_reactions(model.format_reactions())
             model.plot_deformed_shape()
             model.plot_internal_forces("M")
