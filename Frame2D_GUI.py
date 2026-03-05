@@ -778,7 +778,26 @@ class Frame2DGui:
         }
         nodes = {int(r["id"]): {"id": int(r["id"]), "x": float(r["x"]), "y": float(r["y"])} for r in data_tables["nodes"]}
 
-        dof_nodes = {did: dict(dof) for did, dof in self.dof_nodes.items() if dof["node"] in nodes}
+        raw_dof_nodes = {}
+        for did, dof in self.dof_nodes.items():
+            node_id = dof.get("node")
+            if node_id not in nodes:
+                continue
+            try:
+                raw_dof_nodes[int(did)] = {
+                    "id": int(did),
+                    "node": int(node_id),
+                    "ux": int(dof["ux"]),
+                    "uy": int(dof["uy"]),
+                    "rz": int(dof["rz"]),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        primary_dofs_by_node = {}
+        for did, dof in raw_dof_nodes.items():
+            nid = dof["node"]
+            primary_dofs_by_node[nid] = min(did, primary_dofs_by_node.get(nid, did))
 
         elements = {}
         for r in data_tables["elements"]:
@@ -786,7 +805,7 @@ class Frame2DGui:
             candidate = {"id": eid, "i": int(r["i"]), "j": int(r["j"]), "section": int(r["section"])}
             if candidate["section"] not in sections:
                 continue
-            if candidate["i"] not in dof_nodes or candidate["j"] not in dof_nodes:
+            if candidate["i"] not in raw_dof_nodes or candidate["j"] not in raw_dof_nodes:
                 continue
             elements[eid] = candidate
 
@@ -798,7 +817,7 @@ class Frame2DGui:
                 "rz": self._to_bool(r["rz"]),
             }
             for r in data_tables["supports"]
-            if int(r["node"]) in dof_nodes
+            if int(r["node"]) in raw_dof_nodes
         ]
         nodal_loads = [
             {
@@ -808,13 +827,23 @@ class Frame2DGui:
                 "Mz": float(r["Mz"]),
             }
             for r in data_tables["nodal loads"]
-            if int(r["dof_node"]) in dof_nodes
+            if int(r["dof_node"]) in raw_dof_nodes
         ]
         element_loads = [
             {"element": int(r["element"]), "qx": float(r["qx"]), "qz": float(r["qz"])}
             for r in data_tables["element load"]
             if int(r["element"]) in elements
         ]
+
+        used_dofs = set(primary_dofs_by_node.values())
+        for element in elements.values():
+            used_dofs.add(element["i"])
+            used_dofs.add(element["j"])
+        for support in supports:
+            used_dofs.add(support["node"])
+        for load in nodal_loads:
+            used_dofs.add(load["dof_node"])
+        dof_nodes = {did: dof for did, dof in raw_dof_nodes.items() if did in used_dofs}
 
         # release rotation tab je odvozený pohled; změny zde se zatím neaplikují zpět
         self.sections = sections
