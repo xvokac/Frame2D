@@ -224,7 +224,116 @@ class Model:
         for l in data.get("element_loads", []):
             model.element_loads.append(ElementLoad(**l))            
 
+        model.normalize_ids()
+
         return model
+
+    def normalize_ids(self):
+        """Přečísluje ID na souvislé řady (1..n), aby byly konzistentní pro solver."""
+
+        if not self.nodes:
+            return
+
+        # nodes
+        node_id_map = {
+            old_id: new_id
+            for new_id, old_id in enumerate(sorted(self.nodes.keys()), start=1)
+        }
+        self.nodes = {
+            node_id_map[old_id]: Node(
+                id=node_id_map[old_id],
+                x=node.x,
+                y=node.y,
+            )
+            for old_id, node in self.nodes.items()
+        }
+
+        # sections
+        section_id_map = {
+            old_id: new_id
+            for new_id, old_id in enumerate(sorted(self.sections.keys()), start=1)
+        }
+        self.sections = {
+            section_id_map[old_id]: Section(
+                id=section_id_map[old_id],
+                E=sec.E,
+                A=sec.A,
+                I=sec.I,
+            )
+            for old_id, sec in self.sections.items()
+        }
+
+        # dof nodes
+        dof_node_id_map = {
+            old_id: new_id
+            for new_id, old_id in enumerate(sorted(self.dof_nodes.keys()), start=1)
+        }
+
+        old_dofs = sorted({
+            dof
+            for dn in self.dof_nodes.values()
+            for dof in (dn.ux, dn.uy, dn.rz)
+        })
+        dof_id_map = {old_dof: new_dof for new_dof, old_dof in enumerate(old_dofs, start=1)}
+
+        self.dof_nodes = {
+            dof_node_id_map[old_id]: DofNode(
+                id=dof_node_id_map[old_id],
+                node_id=node_id_map[dn.node_id],
+                ux=dof_id_map[dn.ux],
+                uy=dof_id_map[dn.uy],
+                rz=dof_id_map[dn.rz],
+            )
+            for old_id, dn in self.dof_nodes.items()
+        }
+
+        # elements
+        element_id_map = {
+            old_id: new_id
+            for new_id, old_id in enumerate(sorted(self.elements.keys()), start=1)
+        }
+        self.elements = {
+            element_id_map[old_id]: Element(
+                id=element_id_map[old_id],
+                i=dof_node_id_map[e.i],
+                j=dof_node_id_map[e.j],
+                section_id=section_id_map[e.section_id],
+            )
+            for old_id, e in self.elements.items()
+        }
+
+        # supports
+        self.supports = [
+            {
+                **sup,
+                "node": dof_node_id_map[sup["node"]],
+            }
+            for sup in self.supports
+            if sup.get("node") in dof_node_id_map
+        ]
+
+        # nodal loads
+        self.nodal_loads = [
+            NodalLoad(
+                dof_node=dof_node_id_map[load.dof_node],
+                Fx=load.Fx,
+                Fy=load.Fy,
+                Mz=load.Mz,
+            )
+            for load in self.nodal_loads
+            if load.dof_node in dof_node_id_map
+        ]
+
+        # element loads
+        self.element_loads = [
+            ElementLoad(
+                element=element_id_map[load.element],
+                qx=load.qx,
+                qz=load.qz,
+            )
+            for load in self.element_loads
+            if load.element in element_id_map
+        ]
 
 
     #Fixni DOF
