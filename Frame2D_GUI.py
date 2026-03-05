@@ -778,10 +778,17 @@ class Frame2DGui:
         }
         nodes = {int(r["id"]): {"id": int(r["id"]), "x": float(r["x"]), "y": float(r["y"])} for r in data_tables["nodes"]}
 
+        dof_nodes = {did: dict(dof) for did, dof in self.dof_nodes.items() if dof["node"] in nodes}
+
         elements = {}
         for r in data_tables["elements"]:
             eid = int(r["id"])
-            elements[eid] = {"id": eid, "i": int(r["i"]), "j": int(r["j"]), "section": int(r["section"])}
+            candidate = {"id": eid, "i": int(r["i"]), "j": int(r["j"]), "section": int(r["section"])}
+            if candidate["section"] not in sections:
+                continue
+            if candidate["i"] not in dof_nodes or candidate["j"] not in dof_nodes:
+                continue
+            elements[eid] = candidate
 
         supports = [
             {
@@ -791,6 +798,7 @@ class Frame2DGui:
                 "rz": self._to_bool(r["rz"]),
             }
             for r in data_tables["supports"]
+            if int(r["node"]) in dof_nodes
         ]
         nodal_loads = [
             {
@@ -800,35 +808,18 @@ class Frame2DGui:
                 "Mz": float(r["Mz"]),
             }
             for r in data_tables["nodal loads"]
+            if int(r["dof_node"]) in dof_nodes
         ]
         element_loads = [
             {"element": int(r["element"]), "qx": float(r["qx"]), "qz": float(r["qz"])}
             for r in data_tables["element load"]
+            if int(r["element"]) in elements
         ]
-
-        missing_sections = [e["id"] for e in elements.values() if e["section"] not in sections]
-        if missing_sections:
-            raise ValueError(f"Elementy odkazují na neexistující section: {missing_sections}")
-
-        unknown_dof_in_elements = sorted({did for e in elements.values() for did in (e["i"], e["j"]) if did not in self.dof_nodes})
-        if unknown_dof_in_elements:
-            raise ValueError(f"Elementy odkazují na neexistující dof_node: {unknown_dof_in_elements}")
-
-        unknown_dof_in_supports = sorted({s["node"] for s in supports if s["node"] not in self.dof_nodes})
-        if unknown_dof_in_supports:
-            raise ValueError(f"Supports odkazují na neexistující dof_node: {unknown_dof_in_supports}")
-
-        unknown_dof_in_nodal_loads = sorted({l["dof_node"] for l in nodal_loads if l["dof_node"] not in self.dof_nodes})
-        if unknown_dof_in_nodal_loads:
-            raise ValueError(f"Nodal loads odkazují na neexistující dof_node: {unknown_dof_in_nodal_loads}")
-
-        unknown_elements_in_loads = sorted({l["element"] for l in element_loads if l["element"] not in elements})
-        if unknown_elements_in_loads:
-            raise ValueError(f"Element load odkazuje na neexistující element: {unknown_elements_in_loads}")
 
         # release rotation tab je odvozený pohled; změny zde se zatím neaplikují zpět
         self.sections = sections
         self.nodes = nodes
+        self.dof_nodes = dof_nodes
         self.elements = elements
         self.supports = supports
         self.nodal_loads = nodal_loads
