@@ -772,11 +772,31 @@ class Frame2DGui:
         return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
     def _apply_editor_tables(self, data_tables):
+        def parse_int(row, key, default=None):
+            value = row.get(key, default)
+            if value is None or value == "":
+                raise ValueError(key)
+            return int(value)
+
+        def parse_float(row, key, default=None):
+            value = row.get(key, default)
+            if value is None or value == "":
+                raise ValueError(key)
+            return float(value)
+
         sections = {
-            int(r["id"]): {"id": int(r["id"]), "E": float(r["E"]), "A": float(r["A"]), "I": float(r["I"])}
+            parse_int(r, "id"): {
+                "id": parse_int(r, "id"),
+                "E": parse_float(r, "E"),
+                "A": parse_float(r, "A"),
+                "I": parse_float(r, "I"),
+            }
             for r in data_tables["sections"]
         }
-        nodes = {int(r["id"]): {"id": int(r["id"]), "x": float(r["x"]), "y": float(r["y"])} for r in data_tables["nodes"]}
+        nodes = {
+            parse_int(r, "id"): {"id": parse_int(r, "id"), "x": parse_float(r, "x"), "y": parse_float(r, "y")}
+            for r in data_tables["nodes"]
+        }
 
         raw_dof_nodes = {}
         for did, dof in self.dof_nodes.items():
@@ -801,39 +821,63 @@ class Frame2DGui:
 
         elements = {}
         for r in data_tables["elements"]:
-            eid = int(r["id"])
-            candidate = {"id": eid, "i": int(r["i"]), "j": int(r["j"]), "section": int(r["section"])}
+            try:
+                eid = parse_int(r, "id")
+                candidate = {
+                    "id": eid,
+                    "i": parse_int(r, "i"),
+                    "j": parse_int(r, "j"),
+                    "section": parse_int(r, "section"),
+                }
+            except (TypeError, ValueError):
+                continue
             if candidate["section"] not in sections:
                 continue
             if candidate["i"] not in raw_dof_nodes or candidate["j"] not in raw_dof_nodes:
                 continue
             elements[eid] = candidate
 
-        supports = [
-            {
-                "node": int(r["node"]),
-                "ux": self._to_bool(r["ux"]),
-                "uy": self._to_bool(r["uy"]),
-                "rz": self._to_bool(r["rz"]),
-            }
-            for r in data_tables["supports"]
-            if int(r["node"]) in raw_dof_nodes
-        ]
-        nodal_loads = [
-            {
-                "dof_node": int(r["dof_node"]),
-                "Fx": float(r["Fx"]),
-                "Fy": float(r["Fy"]),
-                "Mz": float(r["Mz"]),
-            }
-            for r in data_tables["nodal loads"]
-            if int(r["dof_node"]) in raw_dof_nodes
-        ]
-        element_loads = [
-            {"element": int(r["element"]), "qx": float(r["qx"]), "qz": float(r["qz"])}
-            for r in data_tables["element load"]
-            if int(r["element"]) in elements
-        ]
+        supports = []
+        for r in data_tables["supports"]:
+            try:
+                dof_node_id = parse_int(r, "node")
+            except (TypeError, ValueError):
+                continue
+            if dof_node_id not in raw_dof_nodes:
+                continue
+            supports.append(
+                {
+                    "node": dof_node_id,
+                    "ux": self._to_bool(r.get("ux", False)),
+                    "uy": self._to_bool(r.get("uy", False)),
+                    "rz": self._to_bool(r.get("rz", False)),
+                }
+            )
+
+        nodal_loads = []
+        for r in data_tables["nodal loads"]:
+            try:
+                dof_node_id = parse_int(r, "dof_node")
+                Fx = parse_float(r, "Fx", 0.0)
+                Fy = parse_float(r, "Fy", 0.0)
+                Mz = parse_float(r, "Mz", 0.0)
+            except (TypeError, ValueError):
+                continue
+            if dof_node_id not in raw_dof_nodes:
+                continue
+            nodal_loads.append({"dof_node": dof_node_id, "Fx": Fx, "Fy": Fy, "Mz": Mz})
+
+        element_loads = []
+        for r in data_tables["element load"]:
+            try:
+                element_id = parse_int(r, "element")
+                qx = parse_float(r, "qx", 0.0)
+                qz = parse_float(r, "qz", 0.0)
+            except (TypeError, ValueError):
+                continue
+            if element_id not in elements:
+                continue
+            element_loads.append({"element": element_id, "qx": qx, "qz": qz})
 
         used_dofs = set(primary_dofs_by_node.values())
         for element in elements.values():
