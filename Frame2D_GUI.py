@@ -749,10 +749,10 @@ class Frame2DGui:
 
         ttk.Label(
             special_tab,
-            text="Mass table (lumped masses in DOF nodes for dynamic analysis)",
+            text="Mass table (lumped masses in DOF for dynamic analysis)",
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
-        mass_columns = ["dof_node", "mass"]
+        mass_columns = ["dof_id", "mass"]
         mass_tree = ttk.Treeview(special_tab, columns=mass_columns, show="headings", height=10)
         for col in mass_columns:
             mass_tree.heading(col, text=col)
@@ -982,13 +982,13 @@ class Frame2DGui:
         mass = []
         for r in data_tables.get("mass", []):
             try:
-                dof_node_id = parse_int(r, "dof_node")
+                dof_id = parse_int(r, "dof_id")
                 lumped_mass = parse_float(r, "mass")
             except (TypeError, ValueError):
                 continue
-            if dof_node_id not in raw_dof_nodes:
+            if dof_id not in raw_dof_nodes:
                 continue
-            mass.append({"dof_node": dof_node_id, "mass": lumped_mass})
+            mass.append({"dof_id": dof_id, "mass": lumped_mass})
 
         used_dofs = set(primary_dofs_by_node.values())
         for element in elements.values():
@@ -998,8 +998,6 @@ class Frame2DGui:
             used_dofs.add(support["node"])
         for load in nodal_loads:
             used_dofs.add(load["dof_node"])
-        for lump in mass:
-            used_dofs.add(lump["dof_node"])
         dof_nodes = {did: dof for did, dof in raw_dof_nodes.items() if did in used_dofs}
 
         # release rotation tab je odvozený pohled; změny zde se zatím neaplikují zpět
