@@ -1589,6 +1589,7 @@ if __name__ == '__main__':
     elif model.problem_type == "Dynamic - Natural frequencies and modes":
         model.solve_dynamic()
         model.print_dynamic_results()
+        model.plot_all_mode_shapes(show=True)
 
     else:
         print(f"Unsupported problem_type '{model.problem_type}', fallback to Static solve.")
