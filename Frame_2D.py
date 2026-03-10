@@ -662,6 +662,24 @@ class Model:
 
         return self.eigenvalues, self.eigenvectors, reduced_dofs
 
+    def _mode_shape_full_vector(self, mode_index):
+        if len(self.eigenvalues) == 0:
+            raise ValueError("No dynamic results available. Run solve_dynamic() first.")
+        if mode_index < 0 or mode_index >= self.eigenvectors.shape[1]:
+            raise IndexError("Mode index out of range.")
+
+        max_dof = max(
+            max(dn.ux, dn.uy, dn.rz)
+            for dn in self.dof_nodes.values()
+        )
+        U_mode = np.zeros(max_dof)
+
+        mode_vec = self.eigenvectors[:, mode_index]
+        for i, dof in enumerate(self.dynamic_dofs):
+            U_mode[dof - 1] = mode_vec[i]
+
+        return U_mode
+
     def format_dynamic_results(self):
         if len(self.eigenvalues) == 0:
             return "No dynamic results available."
@@ -1005,6 +1023,102 @@ class Model:
         plt.title(r"Deformation and values $(u^2+v^2)^{1/2}$")
         if show:
             plt.show()
+
+    def plot_mode_shape(self, mode_index, scale=None, n_points=20, show=False):
+        U_mode = self._mode_shape_full_vector(mode_index)
+
+        if scale is None:
+            max_disp = np.max(np.abs(U_mode))
+            if max_disp == 0:
+                scale = 1.0
+            else:
+                size = max(
+                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
+                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
+                )
+                scale = 0.1 * size / max_disp
+
+        fig, ax = plt.subplots()
+
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], 'k--', linewidth=1)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+
+        for elem in self.elements.values():
+            i, j = elem.i, elem.j
+            L, alpha = self.element_geometry(elem.id)
+            c = np.cos(alpha)
+            s = np.sin(alpha)
+
+            di = self.dof_nodes[i]
+            dj = self.dof_nodes[j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            xi, yi = ni.x, ni.y
+
+            u_global = np.array([
+                U_mode[di.ux - 1],
+                U_mode[di.uy - 1],
+                U_mode[di.rz - 1],
+                U_mode[dj.ux - 1],
+                U_mode[dj.uy - 1],
+                U_mode[dj.rz - 1],
+            ])
+
+            T = np.array([
+                [c, s, 0, 0, 0, 0],
+                [-s, c, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0],
+                [0, 0, 0, c, s, 0],
+                [0, 0, 0, -s, c, 0],
+                [0, 0, 0, 0, 0, 1],
+            ])
+            u_local = T @ u_global
+
+            v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
+            u1, u2 = u_local[0], u_local[3]
+
+            xs = []
+            ys = []
+            for xi_loc in np.linspace(0, 1, n_points):
+                N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
+                N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
+                N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
+                N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
+
+                v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
+                x_local = xi_loc * L
+                u_axial = (1 - xi_loc) * u1 + xi_loc * u2
+
+                xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
+                yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
+                xs.append(xg)
+                ys.append(yg)
+
+            ax.plot(xs, ys, 'r', linewidth=2)
+
+        omega = np.sqrt(max(self.eigenvalues[mode_index], 0.0))
+        freq_hz = omega / (2 * np.pi)
+        ax.set_title(f"Mode no. {mode_index + 1}: f = {freq_hz:.3f} Hz")
+        ax.set_aspect('equal')
+        ax.grid(True)
+        ax.margins(0.2)
+
+        if show:
+            plt.show()
+
+    def plot_all_mode_shapes(self, show=False):
+        n_modes = min(self.number_of_eigenvectors, self.eigenvectors.shape[1] if self.eigenvectors.ndim == 2 else 0)
+        for i in range(n_modes):
+            self.plot_mode_shape(i, show=False)
+        if show:
+            self.show_all_plots()
 
     #print reakce
     def format_reactions(self):
