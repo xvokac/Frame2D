@@ -233,7 +233,7 @@ class Model:
         for l in data.get("element_loads", []):
             model.element_loads.append(ElementLoad(**l))
 
-        model.problem_type = data.get("problem_type", "Static")
+        model.problem_type = str(data.get("problem_type", "Static")).strip() or "Static"
         model.number_of_eigenvectors = int(data.get("number_of_eigenvectors", 3))
         model.mass = []
         for item in data.get("mass", []):
@@ -597,6 +597,17 @@ class Model:
     #řešení soustavy K r = f
     def solve(self):
 
+        self.initialize_active_dofs()
+
+        # ️sestavení K a f
+        K = self.assemble_global_stiffness()
+        f = self.assemble_global_load_vector()
+
+        # ️řešení
+        self.U = np.linalg.solve(K, f)
+
+    def initialize_active_dofs(self):
+
         fixed = self.get_fixed_dofs()
 
         # aktivní DOF = všechny - fixní
@@ -612,13 +623,20 @@ class Model:
 
         self.dof_map = {d: i for i, d in enumerate(active)}
         self.ndof = len(active)
-        
-        # ️sestavení K a f
-        K = self.assemble_global_stiffness()
-        f = self.assemble_global_load_vector()
 
-        # ️řešení
-        self.U = np.linalg.solve(K, f)
+    def print_global_stiffness_with_dofs(self):
+        self.initialize_active_dofs()
+        K = self.assemble_global_stiffness()
+
+        print("Global stiffness matrix K:")
+        print(K)
+        print("\nDOF mapping for K rows/columns:")
+
+        ordered_dofs = sorted(self.dof_map.items(), key=lambda item: item[1])
+        for dof_id, idx in ordered_dofs:
+            print(f"K[{idx}, :] -> global DOF {dof_id}")
+
+        return K
 
 
     #Sestavení plného vektoru U, včetně těch fixovaných DOF pro výpočet reakcí
@@ -1368,12 +1386,30 @@ class Model:
 
 if __name__ == '__main__':
     model = Model.from_json('test_model_01.json')
-    model.solve()
-    print(model.compute_reactions())
-    print(model.U)
-    model.print_reactions()
-    model.plot_deformed_shape()
-    model.plot_internal_forces('M')
-    model.plot_internal_forces('V')
-    model.plot_internal_forces('N')
-    model.show_all_plots()
+    print(f"problem_type: {model.problem_type}")
+
+    if model.problem_type == "Static":
+        model.solve()
+        print(model.compute_reactions())
+        print(model.U)
+        model.print_reactions()
+        model.plot_deformed_shape()
+        model.plot_internal_forces('M')
+        model.plot_internal_forces('V')
+        model.plot_internal_forces('N')
+        model.show_all_plots()
+
+    elif model.problem_type == "Dynamic - Natural frequencies and modes":
+        model.print_global_stiffness_with_dofs()
+
+    else:
+        print(f"Unsupported problem_type '{model.problem_type}', fallback to Static solve.")
+        model.solve()
+        print(model.compute_reactions())
+        print(model.U)
+        model.print_reactions()
+        model.plot_deformed_shape()
+        model.plot_internal_forces('M')
+        model.plot_internal_forces('V')
+        model.plot_internal_forces('N')
+        model.show_all_plots()
