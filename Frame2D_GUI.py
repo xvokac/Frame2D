@@ -54,14 +54,14 @@ class Frame2DGui:
         ttk.Button(toolbar, text="Supports", command=lambda: self.set_mode("add_support")).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Nodal loads", command=lambda: self.set_mode("add_nodal_load")).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Element load", command=lambda: self.set_mode("add_element_load")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Vnitřní kloub", command=lambda: self.set_mode("add_release_pick_element")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Editace zadání", command=self.open_data_editor).pack(side=tk.LEFT, padx=8)
+        ttk.Button(toolbar, text="Release rotation", command=lambda: self.set_mode("add_release_pick_element")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Edit inputs", command=self.open_data_editor).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Load JSON", command=self.load_json).pack(side=tk.LEFT, padx=8)
-        ttk.Button(toolbar, text="Uložit JSON", command=self.save_json).pack(side=tk.LEFT, padx=8)
-        ttk.Button(toolbar, text="Normalizovat ID", command=self.normalize_to_canvas).pack(side=tk.LEFT, padx=8)
-        ttk.Button(toolbar, text="Výpočet + grafy", command=self.solve_and_plot).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Save JSON", command=self.save_json).pack(side=tk.LEFT, padx=8)
+        ttk.Button(toolbar, text="Normalize ID", command=self.normalize_to_canvas).pack(side=tk.LEFT, padx=8)
+        ttk.Button(toolbar, text="Calculate", command=self.solve_and_plot).pack(side=tk.LEFT, padx=2)
 
-        self.status_var = tk.StringVar(value="Režim: žádný")
+        self.status_var = tk.StringVar(value="Mode: žádný")
         ttk.Label(self.root, textvariable=self.status_var).pack(anchor="w", padx=10)
 
         self.canvas = tk.Canvas(self.root, width=1000, height=700, bg="white")
@@ -71,19 +71,19 @@ class Frame2DGui:
         self.canvas.bind("<Button-4>", self.on_mouse_wheel_linux)
         self.canvas.bind("<Button-5>", self.on_mouse_wheel_linux)
 
-        reactions_frame = ttk.LabelFrame(self.root, text="Výpis reakcí")
+        reactions_frame = ttk.LabelFrame(self.root, text="Results")
         reactions_frame.pack(fill=tk.BOTH, expand=False, padx=6, pady=(0, 6))
 
         self.reactions_text = tk.Text(reactions_frame, height=8, wrap=tk.NONE)
         self.reactions_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-        self.reactions_text.insert("1.0", "Po výpočtu se zde zobrazí reakce.")
+        self.reactions_text.insert("1.0", "The results will be displayed here after calculation.")
         self.reactions_text.configure(state=tk.DISABLED)
 
     def set_mode(self, mode: str):
         self.mode = mode
         self.pending_element_nodes = []
         self.pending_release_element = None
-        self.status_var.set(f"Režim: {mode}")
+        self.status_var.set(f"Mode: {mode}")
 
     def to_canvas(self, x, y):
         return self.view_origin_x + x * self.view_scale, self.view_origin_y - y * self.view_scale
@@ -343,7 +343,7 @@ class Frame2DGui:
                 nx = float(ex.get())
                 ny = float(ey.get())
             except ValueError:
-                messagebox.showerror("Chyba", "Souřadnice musí být čísla.")
+                messagebox.showerror("Error", "Coordinates must be numbers.")
                 return
 
             nid = self.next_node_id
@@ -365,7 +365,7 @@ class Frame2DGui:
 
     def add_element_dialog(self, n1, n2):
         if not self.sections:
-            messagebox.showwarning("Section", "Nejdřív zadej aspoň jednu section.")
+            messagebox.showwarning("Section", "First enter at least one section.")
             return
 
         win = tk.Toplevel(self.root)
@@ -411,7 +411,7 @@ class Frame2DGui:
                 n1, n2 = self.pending_element_nodes
                 self.pending_element_nodes = []
                 if n1 == n2:
-                    messagebox.showerror("Chyba", "Element musí mít 2 různé nody.")
+                    messagebox.showerror("Error", "The element must have 2 different nodes.")
                     return
                 self.add_element_dialog(n1, n2)
 
@@ -435,7 +435,7 @@ class Frame2DGui:
             if e is not None:
                 self.pending_release_element = e
                 self.mode = "add_release_pick_node"
-                self.status_var.set(f"Režim: vyber konec elementu E{e}")
+                self.status_var.set(f"Mode: vyber konec elementu E{e}")
 
         elif self.mode == "add_release_pick_node":
             n = self.find_nearest_node(event.x, event.y)
@@ -443,7 +443,7 @@ class Frame2DGui:
                 self.apply_release(self.pending_release_element, n)
                 self.pending_release_element = None
                 self.mode = "add_release_pick_element"
-                self.status_var.set("Režim: add_release_pick_element")
+                self.status_var.set("Mode: add_release_pick_element")
 
     def add_support_dialog(self, node_id):
         win = tk.Toplevel(self.root)
@@ -513,7 +513,7 @@ class Frame2DGui:
                 qx = float(ex.get())
                 qz = float(ez.get())
             except ValueError:
-                messagebox.showerror("Chyba", "qx, qz musí být čísla.")
+                messagebox.showerror("Error," "qx, qz must be numbers.")
                 return
 
             self.element_loads.append({"element": element_id, "qx": qx, "qz": qz})
@@ -535,7 +535,7 @@ class Frame2DGui:
             end = "j"
             base = self.dof_nodes[did_j]
         else:
-            messagebox.showerror("Kloub", "Vybraný node není na konci elementu.")
+            messagebox.showerror("Hinge", "The selected node is not at the end of the element.")
             return
 
         new_did = self.next_dof_node_id
@@ -585,7 +585,7 @@ class Frame2DGui:
         messagebox.showinfo("Uloženo", f"Model uložen do:\n{path}")
 
     def load_json(self):
-        path = filedialog.askopenfilename(title="Načíst model", filetypes=[("JSON", "*.json")])
+        path = filedialog.askopenfilename(title="Load model", filetypes=[("JSON", "*.json")])
         if not path:
             return
 
@@ -631,7 +631,7 @@ class Frame2DGui:
 
     def normalize_to_canvas(self):
         if not self.nodes:
-            messagebox.showwarning("Normalizace", "Není co normalizovat.")
+            messagebox.showwarning("Normalization," "There is nothing to normalize.")
             return
 
         tmp_path = "_frame2d_gui_temp.json"
