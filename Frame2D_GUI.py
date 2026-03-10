@@ -998,6 +998,8 @@ class Frame2DGui:
             used_dofs.add(support["node"])
         for load in nodal_loads:
             used_dofs.add(load["dof_node"])
+        for lump in mass:
+            used_dofs.add(lump["dof_node"])
         dof_nodes = {did: dof for did, dof in raw_dof_nodes.items() if did in used_dofs}
 
         # release rotation tab je odvozený pohled; změny zde se zatím neaplikují zpět
