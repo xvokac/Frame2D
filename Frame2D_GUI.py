@@ -979,6 +979,12 @@ class Frame2DGui:
                 continue
             element_loads.append({"element": element_id, "qx": qx, "qz": qz})
 
+        valid_dof_ids = {
+            dof_id
+            for dof in raw_dof_nodes.values()
+            for dof_id in (dof["ux"], dof["uy"], dof["rz"])
+        }
+
         mass = []
         for r in data_tables.get("mass", []):
             try:
@@ -986,7 +992,7 @@ class Frame2DGui:
                 lumped_mass = parse_float(r, "mass")
             except (TypeError, ValueError):
                 continue
-            if dof_id not in raw_dof_nodes:
+            if dof_id not in valid_dof_ids:
                 continue
             mass.append({"dof_id": dof_id, "mass": lumped_mass})
 

@@ -61,6 +61,12 @@ class ElementLoad:
     qz: float
 
 
+@dataclass
+class Mass:
+    dof_id: int
+    m: float
+
+
 
 
 
@@ -229,7 +235,14 @@ class Model:
 
         model.problem_type = data.get("problem_type", "Static")
         model.number_of_eigenvectors = int(data.get("number_of_eigenvectors", 3))
-        model.mass = [dict(m) for m in data.get("mass", [])]
+        model.mass = []
+        for item in data.get("mass", []):
+            try:
+                dof_id = int(item.get("dof_id", item.get("dof_node")))
+                m_val = float(item.get("m", item.get("mass")))
+            except (TypeError, ValueError):
+                continue
+            model.mass.append(Mass(dof_id=dof_id, m=m_val))
 
         model.normalize_ids()
 
@@ -344,9 +357,9 @@ class Model:
 
         # lumped masses
         self.mass = [
-            {"dof_node": dof_node_id_map[item["dof_node"]], "mass": float(item["mass"])}
+            Mass(dof_id=dof_id_map[item.dof_id], m=float(item.m))
             for item in self.mass
-            if item.get("dof_node") in dof_node_id_map
+            if item.dof_id in dof_id_map
         ]
 
     def to_json_data(self):
@@ -384,7 +397,10 @@ class Model:
             ],
             "problem_type": self.problem_type,
             "number_of_eigenvectors": self.number_of_eigenvectors,
-            "mass": sorted(self.mass, key=lambda m: m.get("dof_node", 0)),
+            "mass": [
+                {"dof_id": m.dof_id, "mass": m.m}
+                for m in sorted(self.mass, key=lambda item: item.dof_id)
+            ],
         }
 
 
