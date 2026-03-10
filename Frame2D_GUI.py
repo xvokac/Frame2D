@@ -322,7 +322,7 @@ class Frame2DGui:
             self.sections[sid] = {"id": sid, "E": E, "A": A, "I": I}
             win.destroy()
 
-        ttk.Button(win, text="Uložit", command=save).grid(row=4, column=0, columnspan=2, pady=8)
+        ttk.Button(win, text="Save", command=save).grid(row=4, column=0, columnspan=2, pady=8)
 
     def add_node_dialog(self, x, y):
         win = tk.Toplevel(self.root)
@@ -361,7 +361,7 @@ class Frame2DGui:
             win.destroy()
             self.draw_scene()
 
-        ttk.Button(win, text="Uložit", command=save).grid(row=3, column=0, columnspan=2, pady=8)
+        ttk.Button(win, text="Save", command=save).grid(row=3, column=0, columnspan=2, pady=8)
 
     def add_element_dialog(self, n1, n2):
         if not self.sections:
@@ -388,7 +388,7 @@ class Frame2DGui:
             win.destroy()
             self.draw_scene()
 
-        ttk.Button(win, text="Uložit", command=save).grid(row=2, column=0, columnspan=2, pady=8)
+        ttk.Button(win, text="Save", command=save).grid(row=2, column=0, columnspan=2, pady=8)
 
     def get_primary_dof_node_for_node(self, node_id):
         for did, d in self.dof_nodes.items():
@@ -463,7 +463,7 @@ class Frame2DGui:
             win.destroy()
             self.draw_scene()
 
-        ttk.Button(win, text="Uložit", command=save).pack(pady=8)
+        ttk.Button(win, text="Save", command=save).pack(pady=8)
 
     def add_nodal_load_dialog(self, node_id):
         win = tk.Toplevel(self.root)
@@ -492,7 +492,7 @@ class Frame2DGui:
             win.destroy()
             self.draw_scene()
 
-        ttk.Button(win, text="Uložit", command=save).grid(row=4, column=0, columnspan=2, pady=8)
+        ttk.Button(win, text="Save", command=save).grid(row=4, column=0, columnspan=2, pady=8)
 
     def add_element_load_dialog(self, element_id):
         win = tk.Toplevel(self.root)
@@ -520,7 +520,7 @@ class Frame2DGui:
             win.destroy()
             self.draw_scene()
 
-        ttk.Button(win, text="Uložit", command=save).grid(row=2, column=0, columnspan=2, pady=8)
+        ttk.Button(win, text="Save", command=save).grid(row=2, column=0, columnspan=2, pady=8)
 
     def apply_release(self, element_id, node_id):
         elem = self.elements[element_id]
@@ -721,9 +721,9 @@ class Frame2DGui:
             if tab_name in {"dof nodes", "release rotation"}:
                 ttk.Label(btns, text="The table is for informational purposes only (cannot be edited).").pack(side=tk.LEFT, padx=4)
             else:
-                ttk.Button(btns, text="Přidat řádek", command=lambda n=tab_name: self._add_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
-                ttk.Button(btns, text="Upravit řádek", command=lambda n=tab_name: self._edit_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
-                ttk.Button(btns, text="Smazat řádek", command=lambda n=tab_name: self._delete_table_row(n, data_tables, trees)).pack(side=tk.LEFT, padx=4)
+                ttk.Button(btns, text="Add row", command=lambda n=tab_name: self._add_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
+                ttk.Button(btns, text="Edit row", command=lambda n=tab_name: self._edit_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
+                ttk.Button(btns, text="Delete row", command=lambda n=tab_name: self._delete_table_row(n, data_tables, trees)).pack(side=tk.LEFT, padx=4)
 
             self._refresh_tree(tree, columns, data_tables[tab_name])
 
@@ -764,17 +764,17 @@ class Frame2DGui:
         mass_btns.pack(fill=tk.X, pady=6, padx=6)
         ttk.Button(
             mass_btns,
-            text="Přidat hmotu",
+            text="Add mass",
             command=lambda: self._add_table_row("mass", mass_columns, data_tables, {"mass": mass_tree}),
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
             mass_btns,
-            text="Upravit hmotu",
+            text="Edit mass",
             command=lambda: self._edit_table_row("mass", mass_columns, data_tables, {"mass": mass_tree}),
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
             mass_btns,
-            text="Smazat hmotu",
+            text="Delete mass",
             command=lambda: self._delete_table_row("mass", data_tables, {"mass": mass_tree}),
         ).pack(side=tk.LEFT, padx=4)
 
@@ -832,7 +832,7 @@ class Frame2DGui:
             result["row"] = row
             win.destroy()
 
-        ttk.Button(win, text="Uložit", command=save_row).grid(row=len(columns), column=0, columnspan=2, pady=8)
+        ttk.Button(win, text="Save", command=save_row).grid(row=len(columns), column=0, columnspan=2, pady=8)
         win.transient(self.root)
         win.grab_set()
         self.root.wait_window(win)
