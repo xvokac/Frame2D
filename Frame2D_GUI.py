@@ -728,7 +728,7 @@ class Frame2DGui:
             self._refresh_tree(tree, columns, data_tables[tab_name])
 
         special_tab = ttk.Frame(notebook)
-        notebook.add(special_tab, text="Special")
+        notebook.add(special_tab, text="special")
 
         header = ttk.Frame(special_tab)
         header.pack(fill=tk.X, padx=4, pady=6)
