@@ -181,6 +181,9 @@ class Model:
 
         self.nodal_loads = []
         self.element_loads = []
+        self.problem_type = "Static"
+        self.number_of_eigenvectors = 3
+        self.mass = []
         self.U = []
         self.dof_map = {}
 
@@ -222,7 +225,11 @@ class Model:
             model.nodal_loads.append(NodalLoad(**l))
 
         for l in data.get("element_loads", []):
-            model.element_loads.append(ElementLoad(**l))            
+            model.element_loads.append(ElementLoad(**l))
+
+        model.problem_type = data.get("problem_type", "Static")
+        model.number_of_eigenvectors = int(data.get("number_of_eigenvectors", 3))
+        model.mass = [dict(m) for m in data.get("mass", [])]
 
         model.normalize_ids()
 
@@ -335,6 +342,13 @@ class Model:
             if load.element in element_id_map
         ]
 
+        # lumped masses
+        self.mass = [
+            {"dof_node": dof_node_id_map[item["dof_node"]], "mass": float(item["mass"])}
+            for item in self.mass
+            if item.get("dof_node") in dof_node_id_map
+        ]
+
     def to_json_data(self):
         return {
             "nodes": [
@@ -368,6 +382,9 @@ class Model:
                 {"element": l.element, "qx": l.qx, "qz": l.qz}
                 for l in sorted(self.element_loads, key=lambda l: l.element)
             ],
+            "problem_type": self.problem_type,
+            "number_of_eigenvectors": self.number_of_eigenvectors,
+            "mass": sorted(self.mass, key=lambda m: m.get("dof_node", 0)),
         }
 
 

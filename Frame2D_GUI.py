@@ -7,6 +7,12 @@ from Frame_2D import Model
 
 
 class Frame2DGui:
+    PROBLEM_TYPES = (
+        "Static",
+        "Static & Stability",
+        "Dynamic - Natural frequencies and modes",
+    )
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Frame2D - editor a solver")
@@ -18,6 +24,9 @@ class Frame2DGui:
         self.supports = []
         self.nodal_loads = []
         self.element_loads = []
+        self.problem_type = "Static"
+        self.number_of_eigenvectors = 3
+        self.mass = []
 
         self.next_node_id = 1
         self.next_dof_node_id = 1
@@ -557,6 +566,9 @@ class Frame2DGui:
             "supports": self.supports,
             "nodal_loads": self.nodal_loads,
             "element_loads": self.element_loads,
+            "problem_type": self.problem_type,
+            "number_of_eigenvectors": self.number_of_eigenvectors,
+            "mass": self.mass,
         }
 
     def save_json(self):
@@ -599,6 +611,11 @@ class Frame2DGui:
         self.supports = data.get("supports", [])
         self.nodal_loads = data.get("nodal_loads", [])
         self.element_loads = data.get("element_loads", [])
+        self.problem_type = data.get("problem_type", "Static")
+        if self.problem_type not in self.PROBLEM_TYPES:
+            self.problem_type = "Static"
+        self.number_of_eigenvectors = int(data.get("number_of_eigenvectors", 3))
+        self.mass = data.get("mass", [])
 
         self.next_node_id = max(self.nodes.keys(), default=0) + 1
         self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
@@ -682,6 +699,7 @@ class Frame2DGui:
             "nodal loads": [dict(v) for v in self.nodal_loads],
             "element load": [dict(v) for v in self.element_loads],
             "release rotation": self._collect_release_rows(),
+            "mass": [dict(v) for v in self.mass],
         }
 
         trees = {}
@@ -707,9 +725,66 @@ class Frame2DGui:
 
             self._refresh_tree(tree, columns, data_tables[tab_name])
 
+        special_tab = ttk.Frame(notebook)
+        notebook.add(special_tab, text="Special")
+
+        header = ttk.Frame(special_tab)
+        header.pack(fill=tk.X, padx=4, pady=6)
+
+        ttk.Label(header, text="problem_type").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        problem_type_var = tk.StringVar(value=self.problem_type)
+        ttk.Combobox(
+            header,
+            textvariable=problem_type_var,
+            values=self.PROBLEM_TYPES,
+            state="readonly",
+            width=42,
+        ).grid(row=0, column=1, sticky="w", padx=4, pady=4)
+
+        ttk.Label(header, text="number_of_eigenvectors").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        number_of_eigenvectors_var = tk.StringVar(value=str(self.number_of_eigenvectors))
+        ttk.Entry(header, textvariable=number_of_eigenvectors_var, width=12).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+
+        ttk.Label(
+            special_tab,
+            text="Mass table (lumped masses in DOF nodes for dynamic analysis)",
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+
+        mass_columns = ["dof_node", "mass"]
+        mass_tree = ttk.Treeview(special_tab, columns=mass_columns, show="headings", height=10)
+        for col in mass_columns:
+            mass_tree.heading(col, text=col)
+            mass_tree.column(col, width=140, anchor="center")
+        mass_tree.pack(fill=tk.BOTH, expand=True, padx=8)
+        self._refresh_tree(mass_tree, mass_columns, data_tables["mass"])
+
+        mass_btns = ttk.Frame(special_tab)
+        mass_btns.pack(fill=tk.X, pady=6, padx=6)
+        ttk.Button(
+            mass_btns,
+            text="Přidat hmotu",
+            command=lambda: self._add_table_row("mass", mass_columns, data_tables, {"mass": mass_tree}),
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            mass_btns,
+            text="Upravit hmotu",
+            command=lambda: self._edit_table_row("mass", mass_columns, data_tables, {"mass": mass_tree}),
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            mass_btns,
+            text="Smazat hmotu",
+            command=lambda: self._delete_table_row("mass", data_tables, {"mass": mass_tree}),
+        ).pack(side=tk.LEFT, padx=4)
+
         def apply_changes():
             try:
-                self._apply_editor_tables(data_tables)
+                self._apply_editor_tables(
+                    data_tables,
+                    {
+                        "problem_type": problem_type_var.get(),
+                        "number_of_eigenvectors": number_of_eigenvectors_var.get(),
+                    },
+                )
                 self.draw_scene()
                 editor.destroy()
                 messagebox.showinfo("Editace", "Data byla aktualizována.")
@@ -794,7 +869,7 @@ class Frame2DGui:
     def _to_bool(value):
         return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
-    def _apply_editor_tables(self, data_tables):
+    def _apply_editor_tables(self, data_tables, special_config=None):
         def parse_int(row, key, default=None):
             value = row.get(key, default)
             if value is None or value == "":
@@ -902,6 +977,17 @@ class Frame2DGui:
                 continue
             element_loads.append({"element": element_id, "qx": qx, "qz": qz})
 
+        mass = []
+        for r in data_tables.get("mass", []):
+            try:
+                dof_node_id = parse_int(r, "dof_node")
+                lumped_mass = parse_float(r, "mass")
+            except (TypeError, ValueError):
+                continue
+            if dof_node_id not in raw_dof_nodes:
+                continue
+            mass.append({"dof_node": dof_node_id, "mass": lumped_mass})
+
         used_dofs = set(primary_dofs_by_node.values())
         for element in elements.values():
             used_dofs.add(element["i"])
@@ -920,6 +1006,23 @@ class Frame2DGui:
         self.supports = supports
         self.nodal_loads = nodal_loads
         self.element_loads = element_loads
+        self.mass = mass
+
+        if special_config is None:
+            special_config = {}
+
+        problem_type = special_config.get("problem_type", self.problem_type)
+        if problem_type not in self.PROBLEM_TYPES:
+            raise ValueError("Neplatná volba problem_type.")
+        self.problem_type = problem_type
+
+        try:
+            number_of_eigenvectors = int(special_config.get("number_of_eigenvectors", self.number_of_eigenvectors))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("number_of_eigenvectors musí být celé číslo.") from exc
+        if number_of_eigenvectors < 1:
+            raise ValueError("number_of_eigenvectors musí být >= 1.")
+        self.number_of_eigenvectors = number_of_eigenvectors
 
         self.next_section_id = max(self.sections.keys(), default=0) + 1
         self.next_node_id = max(self.nodes.keys(), default=0) + 1
