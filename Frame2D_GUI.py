@@ -656,14 +656,19 @@ class Frame2DGui:
 
         try:
             model = Model.from_json(tmp_path)
-            model.solve()
-            self._load_data_dict(model.to_json_data())
-            self.show_reactions(model.format_reactions())
-            model.plot_deformed_shape()
-            model.plot_internal_forces("M")
-            model.plot_internal_forces("V")
-            model.plot_internal_forces("N")
-            model.show_all_plots()
+
+            if model.problem_type == "Dynamic - Natural frequencies and modes":
+                model.solve_dynamic()
+                self.show_reactions(model.format_dynamic_results())
+            else:
+                model.solve()
+                self._load_data_dict(model.to_json_data())
+                self.show_reactions(model.format_reactions())
+                model.plot_deformed_shape()
+                model.plot_internal_forces("M")
+                model.plot_internal_forces("V")
+                model.plot_internal_forces("N")
+                model.show_all_plots()
         except Exception as exc:
             messagebox.showerror("Solver error", str(exc))
 
