@@ -660,6 +660,7 @@ class Frame2DGui:
             if model.problem_type == "Dynamic - Natural frequencies and modes":
                 model.solve_dynamic()
                 self.show_reactions(model.format_dynamic_results())
+                model.plot_all_mode_shapes(show=True)
             else:
                 model.solve()
                 self._load_data_dict(model.to_json_data())
