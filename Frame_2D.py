@@ -192,6 +192,9 @@ class Model:
         self.mass = []
         self.U = []
         self.dof_map = {}
+        self.dynamic_dofs = []
+        self.eigenvalues = np.array([])
+        self.eigenvectors = np.array([[]])
 
     @classmethod
     def from_json(cls, path):
@@ -605,6 +608,76 @@ class Model:
 
         # ️řešení
         self.U = np.linalg.solve(K, f)
+
+    def _dynamic_mass_dofs(self):
+        mass_dofs = []
+        for item in self.mass:
+            if item.dof_id in self.dof_map and item.m > 0:
+                mass_dofs.append(item.dof_id)
+
+        return sorted(set(mass_dofs))
+
+    def _condense_dynamic_stiffness(self, K):
+        self.dynamic_dofs = self._dynamic_mass_dofs()
+
+        if not self.dynamic_dofs:
+            raise ValueError("Dynamic analysis requires at least one active DOF with positive mass.")
+
+        idx = [self.dof_map[dof] for dof in self.dynamic_dofs]
+        K_red = K[np.ix_(idx, idx)]
+
+        return K_red, self.dynamic_dofs
+
+    def assemble_mass_matrix(self):
+        if not self.dynamic_dofs:
+            raise ValueError("Dynamic DOFs are not initialized. Condense stiffness first.")
+
+        M = np.zeros((len(self.dynamic_dofs), len(self.dynamic_dofs)))
+        mass_lookup = {item.dof_id: item.m for item in self.mass if item.m > 0}
+
+        for i, dof in enumerate(self.dynamic_dofs):
+            M[i, i] = mass_lookup.get(dof, 0.0)
+
+        if np.any(np.diag(M) <= 0):
+            raise ValueError("All reduced dynamic DOFs must have positive mass on M diagonal.")
+
+        return M
+
+    def solve_dynamic(self):
+        self.initialize_active_dofs()
+        K = self.assemble_global_stiffness()
+        K_red, reduced_dofs = self._condense_dynamic_stiffness(K)
+        M = self.assemble_mass_matrix()
+
+        A = np.linalg.solve(M, K_red)
+        eigvals, eigvecs = np.linalg.eig(A)
+
+        order = np.argsort(eigvals.real)
+        eigvals = eigvals[order].real
+        eigvecs = eigvecs[:, order].real
+
+        n = min(self.number_of_eigenvectors, len(eigvals))
+        self.eigenvalues = eigvals[:n]
+        self.eigenvectors = eigvecs[:, :n]
+
+        return self.eigenvalues, self.eigenvectors, reduced_dofs
+
+    def format_dynamic_results(self):
+        if len(self.eigenvalues) == 0:
+            return "No dynamic results available."
+
+        lines = ["DYNAMIC EIGEN SOLUTION:"]
+        lines.append(f"Reduced DOFs: {self.dynamic_dofs}")
+
+        for i, lam in enumerate(self.eigenvalues, start=1):
+            lines.append(f"lambda_{i} = {lam:.6e}")
+            mode = self.eigenvectors[:, i - 1]
+            lines.append(f"U_{i} = {mode}")
+
+        return "\n".join(lines)
+
+    def print_dynamic_results(self):
+        print(self.format_dynamic_results())
 
     def initialize_active_dofs(self):
 
@@ -1400,7 +1473,8 @@ if __name__ == '__main__':
         model.show_all_plots()
 
     elif model.problem_type == "Dynamic - Natural frequencies and modes":
-        model.print_global_stiffness_with_dofs()
+        model.solve_dynamic()
+        model.print_dynamic_results()
 
     else:
         print(f"Unsupported problem_type '{model.problem_type}', fallback to Static solve.")
