@@ -61,7 +61,7 @@ class Frame2DGui:
         ttk.Button(toolbar, text="Normalize ID", command=self.normalize_to_canvas).pack(side=tk.LEFT, padx=8)
         ttk.Button(toolbar, text="Calculate", command=self.solve_and_plot).pack(side=tk.LEFT, padx=2)
 
-        self.status_var = tk.StringVar(value="Mode: žádný")
+        self.status_var = tk.StringVar(value="Mode: none")
         ttk.Label(self.root, textvariable=self.status_var).pack(anchor="w", padx=10)
 
         self.canvas = tk.Canvas(self.root, width=1000, height=700, bg="white")
@@ -314,7 +314,7 @@ class Frame2DGui:
                 A = float(entries["A"].get())
                 I = float(entries["I"].get())
             except ValueError:
-                messagebox.showerror("Chyba", "E, A, I musí být čísla.")
+                messagebox.showerror("Error," "E, A, I must be numbers.")
                 return
 
             sid = self.next_section_id
@@ -435,7 +435,7 @@ class Frame2DGui:
             if e is not None:
                 self.pending_release_element = e
                 self.mode = "add_release_pick_node"
-                self.status_var.set(f"Mode: vyber konec elementu E{e}")
+                self.status_var.set(f"Mode: select the end of the element E{e}")
 
         elif self.mode == "add_release_pick_node":
             n = self.find_nearest_node(event.x, event.y)
@@ -484,7 +484,7 @@ class Frame2DGui:
                 Fy = float(entries["Fy"].get())
                 Mz = float(entries["Mz"].get())
             except ValueError:
-                messagebox.showerror("Chyba", "Fx, Fy, Mz musí být čísla.")
+                messagebox.showerror("Error", "Fx, Fy, Mz must be numbers.")
                 return
 
             dn = self.get_primary_dof_node_for_node(node_id)
@@ -573,7 +573,7 @@ class Frame2DGui:
 
     def save_json(self):
         path = filedialog.asksaveasfilename(
-            title="Uložit model", defaultextension=".json", filetypes=[("JSON", "*.json")]
+            title="Save model", defaultextension=".json", filetypes=[("JSON", "*.json")]
         )
         if not path:
             return
@@ -582,7 +582,7 @@ class Frame2DGui:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-        messagebox.showinfo("Uloženo", f"Model uložen do:\n{path}")
+        messagebox.showinfo("Saved", f"Model saved to:\n{path}")
 
     def load_json(self):
         path = filedialog.askopenfilename(title="Load model", filetypes=[("JSON", "*.json")])
@@ -593,9 +593,9 @@ class Frame2DGui:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self._load_data_dict(data)
-            messagebox.showinfo("Načteno", f"Model načten z:\n{path}")
+            messagebox.showinfo("Loaded", f"Model loaded from:\n{path}")
         except Exception as exc:
-            messagebox.showerror("Load JSON", f"Nepodařilo se načíst model:\n{exc}")
+            messagebox.showerror("Load JSON", f"Failed to load model:\n{exc}")
 
     def _load_data_dict(self, data):
         self.nodes = {n["id"]: n for n in data.get("nodes", [])}
@@ -641,13 +641,13 @@ class Frame2DGui:
         try:
             model = Model.from_json(tmp_path)
             self._load_data_dict(model.to_json_data())
-            messagebox.showinfo("Normalizace", "ID byla normalizována a přenesena do canvas i JSON dat.")
+            messagebox.showinfo("Normalization", "The ID has been normalized and transferred to both the canvas and JSON data.")
         except Exception as exc:
-            messagebox.showerror("Normalizace", str(exc))
+            messagebox.showerror("Normalization", str(exc))
 
     def solve_and_plot(self):
         if not self.elements or not self.nodes:
-            messagebox.showwarning("Solver", "Model musí mít aspoň nody a elementy.")
+            messagebox.showwarning("Solver", "The model must have at least nodes and elements.")
             return
 
         tmp_path = "_frame2d_gui_temp.json"
@@ -665,7 +665,7 @@ class Frame2DGui:
             model.plot_internal_forces("N")
             model.show_all_plots()
         except Exception as exc:
-            messagebox.showerror("Solver chyba", str(exc))
+            messagebox.showerror("Solver error", str(exc))
 
     def show_reactions(self, text):
         self.reactions_text.configure(state=tk.NORMAL)
@@ -675,7 +675,7 @@ class Frame2DGui:
 
     def open_data_editor(self):
         editor = tk.Toplevel(self.root)
-        editor.title("Editace zadání")
+        editor.title("Edit inputs")
         editor.geometry("980x560")
 
         notebook = ttk.Notebook(editor)
@@ -719,7 +719,7 @@ class Frame2DGui:
             btns = ttk.Frame(frame)
             btns.pack(fill=tk.X, pady=6)
             if tab_name in {"dof nodes", "release rotation"}:
-                ttk.Label(btns, text="Tabulka je pouze informativní (bez možnosti úprav).").pack(side=tk.LEFT, padx=4)
+                ttk.Label(btns, text="The table is for informational purposes only (cannot be edited).").pack(side=tk.LEFT, padx=4)
             else:
                 ttk.Button(btns, text="Přidat řádek", command=lambda n=tab_name: self._add_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
                 ttk.Button(btns, text="Upravit řádek", command=lambda n=tab_name: self._edit_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
@@ -789,11 +789,11 @@ class Frame2DGui:
                 )
                 self.draw_scene()
                 editor.destroy()
-                messagebox.showinfo("Editace", "Data byla aktualizována.")
+                messagebox.showinfo("Editing," "Data has been updated.")
             except Exception as exc:
                 messagebox.showerror("Editace", str(exc))
 
-        ttk.Button(editor, text="Použít změny", command=apply_changes).pack(pady=(0, 8))
+        ttk.Button(editor, text="Apply changes", command=apply_changes).pack(pady=(0, 8))
 
     def _collect_release_rows(self):
         rows = []
