@@ -1006,9 +1006,20 @@ class Model:
         self.annotate_value(X[0], Y[0], values[0], plotted)
         # --- pravý uzel ---
         self.annotate_value(X[-1], Y[-1], values[-1], plotted)
-        # --- extrém ---
-        imax = np.argmax(np.abs(values))
-        self.annotate_value(X[imax], Y[imax], values[imax], plotted)
+        # --- extrém(y) ---
+        if kind == "M" and abs(qz) > 1e-12:
+            # U M(x) = M1 + V1*x + qz*x^2/2 leží vnitřní extrém v bodě V(x)=0.
+            x_ext = -forces[1] / qz
+            if 0.0 < x_ext < L:
+                _, _, val_ext = element_diagram(x_ext, L, forces, qz)
+                xb = xi + cx * x_ext
+                yb = yi + cy * x_ext
+                xd = xb + nx * val_ext * scale
+                yd = yb + ny * val_ext * scale
+                self.annotate_value(xd, yd, val_ext, plotted)
+        else:
+            imax = np.argmax(np.abs(values))
+            self.annotate_value(X[imax], Y[imax], values[imax], plotted)
 
         
 
