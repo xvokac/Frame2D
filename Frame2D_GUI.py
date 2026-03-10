@@ -688,6 +688,7 @@ class Frame2DGui:
             "supports": ["node", "ux", "uy", "rz"],
             "nodal loads": ["dof_node", "Fx", "Fy", "Mz"],
             "element load": ["element", "qx", "qz"],
+            "dof nodes": ["id", "node", "ux", "uy", "rz"],
             "release rotation": ["element", "end", "node", "dof_node"],
         }
 
@@ -698,6 +699,7 @@ class Frame2DGui:
             "supports": [dict(v) for v in self.supports],
             "nodal loads": [dict(v) for v in self.nodal_loads],
             "element load": [dict(v) for v in self.element_loads],
+            "dof nodes": [dict(v) for v in sorted(self.dof_nodes.values(), key=lambda d: d["id"])],
             "release rotation": self._collect_release_rows(),
             "mass": [dict(v) for v in self.mass],
         }
@@ -716,8 +718,8 @@ class Frame2DGui:
 
             btns = ttk.Frame(frame)
             btns.pack(fill=tk.X, pady=6)
-            if tab_name == "release rotation":
-                ttk.Label(btns, text="Tabulka je pouze informativní (odvozeno z elementů + dof_nodes).").pack(side=tk.LEFT, padx=4)
+            if tab_name in {"dof nodes", "release rotation"}:
+                ttk.Label(btns, text="Tabulka je pouze informativní (bez možnosti úprav).").pack(side=tk.LEFT, padx=4)
             else:
                 ttk.Button(btns, text="Přidat řádek", command=lambda n=tab_name: self._add_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
                 ttk.Button(btns, text="Upravit řádek", command=lambda n=tab_name: self._edit_table_row(n, schemas[n], data_tables, trees)).pack(side=tk.LEFT, padx=4)
