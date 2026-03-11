@@ -1105,7 +1105,7 @@ class Model:
 
         omega = np.sqrt(max(self.eigenvalues[mode_index], 0.0))
         freq_hz = omega / (2 * np.pi)
-        ax.set_title(f"Mode no. {mode_index + 1}: f = {freq_hz:.3f} Hz")
+        ax.set_title(f"Shape mode no. {mode_index + 1}: f = {freq_hz:.3f} Hz")
         ax.set_aspect('equal')
         ax.grid(True)
         ax.margins(0.2)
