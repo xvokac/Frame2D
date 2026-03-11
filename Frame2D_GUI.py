@@ -126,6 +126,7 @@ class Frame2DGui:
     def draw_scene(self):
         self.canvas.delete("all")
         self._draw_grid()
+        mass_nodes = self._get_nodes_with_mass()
 
         for e in self.elements.values():
             ni = self.nodes[self.dof_nodes[e["i"]]["node"]]
@@ -140,6 +141,16 @@ class Frame2DGui:
 
         for n_id, node in self.nodes.items():
             x, y = self.to_canvas(node["x"], node["y"])
+            if n_id in mass_nodes:
+                mass_radius = 10
+                self.canvas.create_oval(
+                    x - mass_radius,
+                    y - mass_radius,
+                    x + mass_radius,
+                    y + mass_radius,
+                    outline="purple",
+                    width=2,
+                )
             r = 4
             self.canvas.create_oval(x - r, y - r, x + r, y + r, fill="royalblue")
             self.canvas.create_text(x + 12, y - 10, text=f"N{n_id}", fill="blue")
@@ -147,6 +158,15 @@ class Frame2DGui:
         self._draw_supports()
         self._draw_nodal_loads()
         self._draw_element_loads()
+
+    def _get_nodes_with_mass(self):
+        nodes_with_mass = set()
+        for item in self.mass:
+            dof_id = item.get("dof_id")
+            dof_node = self.dof_nodes.get(dof_id)
+            if dof_node:
+                nodes_with_mass.add(dof_node["node"])
+        return nodes_with_mass
 
     def _draw_grid(self):
         width = max(self.canvas.winfo_width(), 1)
