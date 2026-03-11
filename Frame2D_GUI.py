@@ -64,20 +64,35 @@ class Frame2DGui:
         self.status_var = tk.StringVar(value="Mode: none")
         ttk.Label(self.root, textvariable=self.status_var).pack(anchor="w", padx=10)
 
-        self.canvas = tk.Canvas(self.root, width=1000, height=700, bg="white")
-        self.canvas.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        main_pane = ttk.Panedwindow(self.root, orient=tk.VERTICAL)
+        main_pane.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+
+        canvas_frame = ttk.Frame(main_pane)
+        self.canvas = tk.Canvas(canvas_frame, width=1000, height=700, bg="white")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Button-4>", self.on_mouse_wheel_linux)
         self.canvas.bind("<Button-5>", self.on_mouse_wheel_linux)
 
-        reactions_frame = ttk.LabelFrame(self.root, text="Results")
-        reactions_frame.pack(fill=tk.BOTH, expand=False, padx=6, pady=(0, 6))
+        reactions_frame = ttk.LabelFrame(main_pane, text="Results")
+        reactions_frame.columnconfigure(0, weight=1)
+        reactions_frame.rowconfigure(0, weight=1)
 
         self.reactions_text = tk.Text(reactions_frame, height=8, wrap=tk.NONE)
-        self.reactions_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        y_scroll = ttk.Scrollbar(reactions_frame, orient=tk.VERTICAL, command=self.reactions_text.yview)
+        x_scroll = ttk.Scrollbar(reactions_frame, orient=tk.HORIZONTAL, command=self.reactions_text.xview)
+        self.reactions_text.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+
+        self.reactions_text.grid(row=0, column=0, sticky="nsew", padx=(4, 0), pady=(4, 0))
+        y_scroll.grid(row=0, column=1, sticky="ns", padx=(2, 4), pady=(4, 0))
+        x_scroll.grid(row=1, column=0, sticky="ew", padx=(4, 0), pady=(2, 4))
+
         self.reactions_text.insert("1.0", "The results will be displayed here after calculation.")
         self.reactions_text.configure(state=tk.DISABLED)
+
+        main_pane.add(canvas_frame, weight=4)
+        main_pane.add(reactions_frame, weight=1)
 
     def set_mode(self, mode: str):
         self.mode = mode
