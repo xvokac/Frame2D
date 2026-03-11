@@ -193,6 +193,8 @@ class Model:
         self.U = []
         self.dof_map = {}
         self.dynamic_dofs = []
+        self.dynamic_active_dofs = []
+        self._dynamic_back_substitution = np.array([[]])
         self.eigenvalues = np.array([])
         self.eigenvectors = np.array([[]])
 
@@ -619,12 +621,30 @@ class Model:
 
     def _condense_dynamic_stiffness(self, K):
         self.dynamic_dofs = self._dynamic_mass_dofs()
+        self.dynamic_active_dofs = sorted(self.dof_map, key=self.dof_map.get)
+        self._dynamic_back_substitution = np.array([[]])
 
         if not self.dynamic_dofs:
             raise ValueError("Dynamic analysis requires at least one active DOF with positive mass.")
 
-        idx = [self.dof_map[dof] for dof in self.dynamic_dofs]
-        K_red = K[np.ix_(idx, idx)]
+        master_idx = [self.dof_map[dof] for dof in self.dynamic_dofs]
+        slave_idx = [
+            idx for idx, dof in enumerate(self.dynamic_active_dofs)
+            if dof not in self.dynamic_dofs
+        ]
+
+        if not slave_idx:
+            K_red = K[np.ix_(master_idx, master_idx)]
+            return K_red, self.dynamic_dofs
+
+        K_mm = K[np.ix_(master_idx, master_idx)]
+        K_ms = K[np.ix_(master_idx, slave_idx)]
+        K_sm = K[np.ix_(slave_idx, master_idx)]
+        K_ss = K[np.ix_(slave_idx, slave_idx)]
+
+        K_ss_inv_K_sm = np.linalg.solve(K_ss, K_sm)
+        K_red = K_mm - K_ms @ K_ss_inv_K_sm
+        self._dynamic_back_substitution = -K_ss_inv_K_sm
 
         return K_red, self.dynamic_dofs
 
@@ -675,6 +695,16 @@ class Model:
         U_mode = np.zeros(max_dof)
 
         mode_vec = self.eigenvectors[:, mode_index]
+
+        if self._dynamic_back_substitution.size:
+            slave_modes = self._dynamic_back_substitution @ mode_vec
+            slave_dofs = [
+                dof for dof in self.dynamic_active_dofs
+                if dof not in self.dynamic_dofs
+            ]
+            for i, dof in enumerate(slave_dofs):
+                U_mode[dof - 1] = slave_modes[i]
+
         for i, dof in enumerate(self.dynamic_dofs):
             U_mode[dof - 1] = mode_vec[i]
 
