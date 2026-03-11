@@ -1151,8 +1151,8 @@ class Model:
         freq_hz = omega / (2 * np.pi)
         ax.set_title(f"Shape mode no. {mode_index + 1}: f = {freq_hz:.3f} Hz")
         ax.set_aspect('equal')
-        ax.grid(True)
         ax.margins(0.2)
+        ax.set_axis_off()
 
         if show:
             plt.show()
