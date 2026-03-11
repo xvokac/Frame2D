@@ -729,6 +729,20 @@ class Model:
 
         return K
 
+    def print_reduced_stiffness_with_dofs(self):
+        self.initialize_active_dofs()
+        K = self.assemble_global_stiffness()
+        K_red, reduced_dofs = self._condense_dynamic_stiffness(K)
+
+        print("Reduced stiffness matrix K_red (dynamic DOFs):")
+        print(K_red)
+        print("\nDOF mapping for K_red rows/columns:")
+
+        for idx, dof_id in enumerate(reduced_dofs):
+            print(f"K_red[{idx}, :] -> global DOF {dof_id}")
+
+        return K_red
+
 
     #Sestavení plného vektoru U, včetně těch fixovaných DOF pro výpočet reakcí
     def build_full_U(self):
