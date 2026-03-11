@@ -759,10 +759,7 @@ class Model:
 
         self.solve()
 
-        U_full = self._get_full_displacement_vector()
-        axial_forces = {}
-        for elem in self.elements.values():
-            axial_forces[elem.id] = self._element_axial_force(elem, U_full)
+        axial_forces = self.get_stability_axial_forces()
 
         K = self.assemble_global_stiffness()
         K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
@@ -778,6 +775,14 @@ class Model:
         self.eigenvectors = eigvecs
 
         return eigvals, eigvecs
+
+    def get_stability_axial_forces(self):
+        """Vrátí osové síly prvků pro sestavení geometrické matice tuhosti."""
+        U_full = self._get_full_displacement_vector()
+        axial_forces = {}
+        for elem in self.elements.values():
+            axial_forces[elem.id] = self._element_axial_force(elem, U_full)
+        return axial_forces
 
     def format_stability_results(self):
         if len(self.eigenvalues) == 0:
@@ -992,6 +997,31 @@ class Model:
             print(f"K_red[{idx}, :] -> global DOF {dof_id}")
 
         return K_red
+
+    def print_global_geometric_stiffness_with_dofs(self):
+        """
+        Vytiskne globální geometrickou matici tuhosti (počátečních napětí) K_sigma
+        a odpovídající mapování řádků/sloupců na globální DOF.
+        """
+        self._validate_stability_qx()
+        self.solve()
+
+        axial_forces = self.get_stability_axial_forces()
+        K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
+
+        print("Global geometric stiffness matrix K_sigma:")
+        print(K_sigma)
+        print("\nDOF mapping for K_sigma rows/columns:")
+
+        ordered_dofs = sorted(self.dof_map.items(), key=lambda item: item[1])
+        for dof_id, idx in ordered_dofs:
+            print(f"K_sigma[{idx}, :] -> global DOF {dof_id}")
+
+        print("\nElement axial forces used for K_sigma:")
+        for elem_id in sorted(axial_forces):
+            print(f"N[{elem_id}] = {axial_forces[elem_id]:.6e}")
+
+        return K_sigma
 
 
     #Sestavení plného vektoru U, včetně těch fixovaných DOF pro výpočet reakcí
