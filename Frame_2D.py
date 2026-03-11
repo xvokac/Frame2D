@@ -1572,7 +1572,7 @@ class Model:
 
 
 if __name__ == '__main__':
-    model = Model.from_json('test_dyn_model_01.json')
+    model = Model.from_json('test_dyn_model_03.json')
     print(f"problem_type: {model.problem_type}")
 
     if model.problem_type == "Static":
