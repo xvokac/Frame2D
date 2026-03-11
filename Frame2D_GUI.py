@@ -9,7 +9,7 @@ from Frame_2D import Model
 class Frame2DGui:
     PROBLEM_TYPES = (
         "Static",
-        "Static & Stability",
+        "Stability",
         "Dynamic - Natural frequencies and modes",
     )
 
@@ -797,6 +797,10 @@ class Frame2DGui:
                 model.solve_dynamic()
                 self.show_reactions(model.format_dynamic_results())
                 model.plot_all_mode_shapes(show=True)
+            elif model.problem_type == "Stability":
+                model.solve_stability()
+                self.show_reactions(model.format_stability_results())
+                model.plot_all_stability_shapes(show=True)
             else:
                 model.solve()
                 self._load_data_dict(model.to_json_data())

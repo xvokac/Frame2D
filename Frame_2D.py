@@ -110,6 +110,20 @@ def global_stiffness(Kl, alpha):
     return T.T @ Kl @ T
 
 
+def local_geometric_stiffness(N, L):
+
+    coeff = N / (30 * L)
+
+    return coeff * np.array([
+        [0, 0, 0, 0, 0, 0],
+        [0, 36, 3*L, 0, -36, 3*L],
+        [0, 3*L, 4*L**2, 0, -3*L, -L**2],
+        [0, 0, 0, 0, 0, 0],
+        [0, -36, -3*L, 0, 36, -3*L],
+        [0, 3*L, -L**2, 0, -3*L, 4*L**2],
+    ])
+
+
 #Vektor zatizeni prutu transformovaného do uzlu u lokalnich s.s.
 def local_element_load(qx, qz, L):
     """
@@ -681,6 +695,212 @@ class Model:
         self.eigenvectors = eigvecs[:, :n]
 
         return self.eigenvalues, self.eigenvectors, reduced_dofs
+
+
+    def _validate_stability_qx(self):
+        invalid_elements = [load.element for load in self.element_loads if abs(load.qx) > 1e-12]
+        if invalid_elements:
+            ids = sorted(set(invalid_elements))
+            raise ValueError(
+                "Stability analysis requires qx = 0 on all elements (constant N per element). "
+                f"Invalid element ids: {ids}"
+            )
+
+    def _get_full_displacement_vector(self):
+        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
+        U_full = np.zeros(max_dof)
+        for dof, idx in self.dof_map.items():
+            U_full[dof - 1] = self.U[idx]
+        return U_full
+
+    def _element_axial_force(self, elem, U_full):
+        sec = self.sections[elem.section_id]
+        L, alpha = self.element_geometry(elem.id)
+        dof_ids = self.element_dof_ids(elem.id)
+        u_global = np.array([U_full[dof - 1] for dof in dof_ids])
+        u_local = local_displacements(u_global, alpha)
+
+        qx, qz = self.get_element_loads(elem)
+        f_local = element_local_forces(sec.E, sec.A, sec.I, L, u_local, qx=qx, qz=qz)
+
+        n_start = -f_local[0]
+        n_end = f_local[3]
+        return 0.5 * (n_start + n_end)
+
+    def assemble_global_geometric_stiffness(self, axial_forces):
+        K_sigma = np.zeros((self.ndof, self.ndof))
+
+        for elem in self.elements.values():
+            L, alpha = self.element_geometry(elem.id)
+            N = axial_forces[elem.id]
+
+            Kl_sigma = local_geometric_stiffness(N, L)
+            Kg_sigma = global_stiffness(Kl_sigma, alpha)
+
+            dof_ids = self.element_dof_ids(elem.id)
+
+            for i in range(6):
+                I = dof_ids[i]
+                if I not in self.dof_map:
+                    continue
+                ii = self.dof_map[I]
+
+                for j in range(6):
+                    J = dof_ids[j]
+                    if J not in self.dof_map:
+                        continue
+                    jj = self.dof_map[J]
+                    K_sigma[ii, jj] += Kg_sigma[i, j]
+
+        return K_sigma
+
+    def solve_stability(self):
+        self._validate_stability_qx()
+
+        self.solve()
+
+        U_full = self._get_full_displacement_vector()
+        axial_forces = {}
+        for elem in self.elements.values():
+            axial_forces[elem.id] = self._element_axial_force(elem, U_full)
+
+        K = self.assemble_global_stiffness()
+        K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
+
+        A = -np.linalg.solve(K_sigma, K)
+        eigvals, eigvecs = np.linalg.eig(A)
+
+        order = np.argsort(eigvals.real)
+        eigvals = eigvals[order].real
+        eigvecs = eigvecs[:, order].real
+
+        self.eigenvalues = eigvals
+        self.eigenvectors = eigvecs
+
+        return eigvals, eigvecs
+
+    def format_stability_results(self):
+        if len(self.eigenvalues) == 0:
+            return "No stability results available."
+
+        lines = ["STABILITY EIGEN SOLUTION:"]
+        for i, lam in enumerate(self.eigenvalues[:self.number_of_eigenvectors], start=1):
+            lines.append(f"lambda_{i} = {lam:.6e}")
+            lines.append(f"U_{i} = {self.eigenvectors[:, i - 1]}")
+
+        return "\n".join(lines)
+
+    def print_stability_results(self):
+        print(self.format_stability_results())
+
+    def _stability_shape_full_vector(self, mode_index):
+        if len(self.eigenvalues) == 0:
+            raise ValueError("No stability results available. Run solve_stability() first.")
+        if mode_index < 0 or mode_index >= self.eigenvectors.shape[1]:
+            raise IndexError("Mode index out of range.")
+
+        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
+        U_mode = np.zeros(max_dof)
+
+        mode_vec = self.eigenvectors[:, mode_index]
+        for dof, idx in self.dof_map.items():
+            U_mode[dof - 1] = mode_vec[idx]
+
+        return U_mode
+
+    def plot_stability_shape(self, mode_index, scale=None, n_points=20, show=False):
+        U_mode = self._stability_shape_full_vector(mode_index)
+
+        if scale is None:
+            max_disp = np.max(np.abs(U_mode))
+            if max_disp == 0:
+                scale = 1.0
+            else:
+                size = max(
+                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
+                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
+                )
+                scale = 0.1 * size / max_disp
+
+        fig, ax = plt.subplots()
+
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], 'k--', linewidth=1)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+
+        for elem in self.elements.values():
+            i, j = elem.i, elem.j
+            L, alpha = self.element_geometry(elem.id)
+            c = np.cos(alpha)
+            s = np.sin(alpha)
+
+            di = self.dof_nodes[i]
+            dj = self.dof_nodes[j]
+            ni = self.nodes[di.node_id]
+            xi, yi = ni.x, ni.y
+
+            u_global = np.array([
+                U_mode[di.ux - 1],
+                U_mode[di.uy - 1],
+                U_mode[di.rz - 1],
+                U_mode[dj.ux - 1],
+                U_mode[dj.uy - 1],
+                U_mode[dj.rz - 1],
+            ])
+
+            T = np.array([
+                [c, s, 0, 0, 0, 0],
+                [-s, c, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0],
+                [0, 0, 0, c, s, 0],
+                [0, 0, 0, -s, c, 0],
+                [0, 0, 0, 0, 0, 1],
+            ])
+            u_local = T @ u_global
+
+            v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
+            u1, u2 = u_local[0], u_local[3]
+
+            xs = []
+            ys = []
+            for xi_loc in np.linspace(0, 1, n_points):
+                N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
+                N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
+                N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
+                N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
+
+                v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
+                x_local = xi_loc * L
+                u_axial = (1 - xi_loc) * u1 + xi_loc * u2
+
+                xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
+                yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
+                xs.append(xg)
+                ys.append(yg)
+
+            ax.plot(xs, ys, 'r', linewidth=2)
+
+        lam = self.eigenvalues[mode_index]
+        ax.set_title(f"Eigen shape -  Eigen number: {lam:.6e}")
+        ax.set_aspect('equal')
+        ax.margins(0.2)
+        ax.set_axis_off()
+
+        if show:
+            plt.show()
+
+    def plot_all_stability_shapes(self, show=False):
+        n_modes = min(self.number_of_eigenvectors, self.eigenvectors.shape[1] if self.eigenvectors.ndim == 2 else 0)
+        for i in range(n_modes):
+            self.plot_stability_shape(i, show=False)
+        if show:
+            self.show_all_plots()
 
     def _mode_shape_full_vector(self, mode_index):
         if len(self.eigenvalues) == 0:
@@ -1634,6 +1854,11 @@ if __name__ == '__main__':
         model.solve_dynamic()
         model.print_dynamic_results()
         model.plot_all_mode_shapes(show=True)
+
+    elif model.problem_type == "Stability":
+        model.solve_stability()
+        model.print_stability_results()
+        model.plot_all_stability_shapes(show=True)
 
     else:
         print(f"Unsupported problem_type '{model.problem_type}', fallback to Static solve.")
