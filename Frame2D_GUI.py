@@ -41,6 +41,7 @@ class Frame2DGui:
         self.view_scale = 40.0
         self.view_origin_x = 80.0
         self.view_origin_y = 620.0
+        self.grid_unit = 1.0
 
         self._build_ui()
 
@@ -124,6 +125,7 @@ class Frame2DGui:
 
     def draw_scene(self):
         self.canvas.delete("all")
+        self._draw_grid()
 
         for e in self.elements.values():
             ni = self.nodes[self.dof_nodes[e["i"]]["node"]]
@@ -145,6 +147,76 @@ class Frame2DGui:
         self._draw_supports()
         self._draw_nodal_loads()
         self._draw_element_loads()
+
+    def _draw_grid(self):
+        width = max(self.canvas.winfo_width(), 1)
+        height = max(self.canvas.winfo_height(), 1)
+
+        x0, y0 = self.from_canvas(0, height)
+        x1, y1 = self.from_canvas(width, 0)
+
+        x_min, x_max = min(x0, x1), max(x0, x1)
+        y_min, y_max = min(y0, y1), max(y0, y1)
+
+        unit = self.grid_unit
+        max_lines = 350
+
+        x_span_units = (x_max - x_min) / unit if unit > 0 else 0
+        y_span_units = (y_max - y_min) / unit if unit > 0 else 0
+        x_step_units = max(1, int(math.ceil(x_span_units / max_lines)))
+        y_step_units = max(1, int(math.ceil(y_span_units / max_lines)))
+
+        x_start = int(math.floor(x_min / unit))
+        x_end = int(math.ceil(x_max / unit))
+        y_start = int(math.floor(y_min / unit))
+        y_end = int(math.ceil(y_max / unit))
+
+        for xi in range(x_start, x_end + 1, x_step_units):
+            wx = xi * unit
+            cx, _ = self.to_canvas(wx, 0)
+            if abs(wx) < 1e-12:
+                color = "#8d8d8d"
+                width_px = 2
+            elif xi % 5 == 0:
+                color = "#d0d0d0"
+                width_px = 1
+            else:
+                color = "#ececec"
+                width_px = 1
+            self.canvas.create_line(cx, 0, cx, height, fill=color, width=width_px)
+
+        for yi in range(y_start, y_end + 1, y_step_units):
+            wy = yi * unit
+            _, cy = self.to_canvas(0, wy)
+            if abs(wy) < 1e-12:
+                color = "#8d8d8d"
+                width_px = 2
+            elif yi % 5 == 0:
+                color = "#d0d0d0"
+                width_px = 1
+            else:
+                color = "#ececec"
+                width_px = 1
+            self.canvas.create_line(0, cy, width, cy, fill=color, width=width_px)
+
+    def _fit_view_to_bounds(self, x_min, x_max, y_min, y_max):
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+        if width <= 1:
+            width = int(self.canvas.cget("width"))
+        if height <= 1:
+            height = int(self.canvas.cget("height"))
+
+        dx = max(float(x_max) - float(x_min), 1e-9)
+        dy = max(float(y_max) - float(y_min), 1e-9)
+
+        margin_px = 40.0
+        usable_w = max(width - 2 * margin_px, 80.0)
+        usable_h = max(height - 2 * margin_px, 80.0)
+
+        self.view_scale = max(8.0, min(300.0, min(usable_w / dx, usable_h / dy)))
+        self.view_origin_x = margin_px - float(x_min) * self.view_scale
+        self.view_origin_y = margin_px + float(y_max) * self.view_scale
 
     def _draw_supports(self):
         for support in self.supports:
@@ -607,12 +679,12 @@ class Frame2DGui:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._load_data_dict(data)
+            self._load_data_dict(data, fit_view=True)
             messagebox.showinfo("Loaded", f"Model loaded from:\n{path}")
         except Exception as exc:
             messagebox.showerror("Load JSON", f"Failed to load model:\n{exc}")
 
-    def _load_data_dict(self, data):
+    def _load_data_dict(self, data, fit_view=False):
         self.nodes = {n["id"]: n for n in data.get("nodes", [])}
         self.dof_nodes = {
             d["id"]: {"id": d["id"], "node": d["node"], "ux": d["ux"], "uy": d["uy"], "rz": d["rz"]}
@@ -641,6 +713,23 @@ class Frame2DGui:
         for d in self.dof_nodes.values():
             max_dof = max(max_dof, d["ux"], d["uy"], d["rz"])
         self.next_dof_id = max_dof + 1
+
+        if fit_view:
+            bounds = None
+            try:
+                if all(k in data for k in ("x_min", "x_max", "y_min", "y_max")):
+                    bounds = (float(data["x_min"]), float(data["x_max"]), float(data["y_min"]), float(data["y_max"]))
+            except (TypeError, ValueError):
+                bounds = None
+
+            if bounds is None and self.nodes:
+                xs = [node["x"] for node in self.nodes.values()]
+                ys = [node["y"] for node in self.nodes.values()]
+                bounds = (min(xs), max(xs), min(ys), max(ys))
+
+            if bounds is not None:
+                x_min, x_max, y_min, y_max = bounds
+                self._fit_view_to_bounds(x_min, x_max, y_min, y_max)
 
         self.draw_scene()
 
