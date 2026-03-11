@@ -409,7 +409,7 @@ class Frame2DGui:
         for did, d in self.dof_nodes.items():
             if d["node"] == node_id:
                 return did
-        raise ValueError(f"DofNode pro node {node_id} neexistuje")
+        raise ValueError(f"DofNode for node {node_id} does not exist")
 
     def on_canvas_click(self, event):
         x, y = self.from_canvas(event.x, event.y)
@@ -860,7 +860,7 @@ class Frame2DGui:
         return result["row"]
 
     def _add_table_row(self, tab_name, columns, data_tables, trees):
-        row = self._edit_row_dialog(f"Přidat: {tab_name}", columns)
+        row = self._edit_row_dialog(f"Add: {tab_name}", columns)
         if row is None:
             return
         data_tables[tab_name].append(row)
