@@ -110,6 +110,13 @@ def global_stiffness(Kl, alpha):
     return T.T @ Kl @ T
 
 
+def global_geometric_stiffness(Kl_sigma, alpha):
+    """Transformace geometrické (počáteční napětí) matice z lokálního do globálního s.s."""
+
+    T = transformation_matrix(alpha)
+    return T.T @ Kl_sigma @ T
+
+
 def local_geometric_stiffness(N, L):
 
     coeff = N / (30 * L)
@@ -735,7 +742,7 @@ class Model:
             N = axial_forces[elem.id]
 
             Kl_sigma = local_geometric_stiffness(N, L)
-            Kg_sigma = global_stiffness(Kl_sigma, alpha)
+            Kg_sigma = global_geometric_stiffness(Kl_sigma, alpha)
 
             dof_ids = self.element_dof_ids(elem.id)
 
