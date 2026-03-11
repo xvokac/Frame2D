@@ -163,10 +163,16 @@ class Frame2DGui:
         nodes_with_mass = set()
         for item in self.mass:
             dof_id = item.get("dof_id")
-            dof_node = self.dof_nodes.get(dof_id)
-            if dof_node:
-                nodes_with_mass.add(dof_node["node"])
+            node_id = self._find_node_id_for_dof(dof_id)
+            if node_id is not None:
+                nodes_with_mass.add(node_id)
         return nodes_with_mass
+
+    def _find_node_id_for_dof(self, dof_id):
+        for dof_node in self.dof_nodes.values():
+            if dof_id in (dof_node.get("ux"), dof_node.get("uy"), dof_node.get("rz")):
+                return dof_node.get("node")
+        return None
 
     def _draw_grid(self):
         width = max(self.canvas.winfo_width(), 1)
