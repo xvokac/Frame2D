@@ -203,13 +203,16 @@ class Frame2DGui:
             if abs(wx) < 1e-12:
                 color = "#8d8d8d"
                 width_px = 2
+                dash_pattern = (6, 4)
             elif xi % 5 == 0:
                 color = "#d0d0d0"
                 width_px = 1
+                dash_pattern = (4, 4)
             else:
                 color = "#ececec"
                 width_px = 1
-            self.canvas.create_line(cx, 0, cx, height, fill=color, width=width_px)
+                dash_pattern = (2, 5)
+            self.canvas.create_line(cx, 0, cx, height, fill=color, width=width_px, dash=dash_pattern)
 
         for yi in range(y_start, y_end + 1, y_step_units):
             wy = yi * unit
@@ -217,13 +220,16 @@ class Frame2DGui:
             if abs(wy) < 1e-12:
                 color = "#8d8d8d"
                 width_px = 2
+                dash_pattern = (6, 4)
             elif yi % 5 == 0:
                 color = "#d0d0d0"
                 width_px = 1
+                dash_pattern = (4, 4)
             else:
                 color = "#ececec"
                 width_px = 1
-            self.canvas.create_line(0, cy, width, cy, fill=color, width=width_px)
+                dash_pattern = (2, 5)
+            self.canvas.create_line(0, cy, width, cy, fill=color, width=width_px, dash=dash_pattern)
 
     def _fit_view_to_bounds(self, x_min, x_max, y_min, y_max):
         width = self.canvas.winfo_width()
