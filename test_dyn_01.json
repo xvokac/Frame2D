@@ -1,0 +1,110 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "id": 2,
+      "x": 0.0,
+      "y": 3.0
+    },
+    {
+      "id": 3,
+      "x": 3.0,
+      "y": 3.0
+    },
+    {
+      "id": 4,
+      "x": 3.0,
+      "y": 0.0
+    }
+  ],
+  "dof_nodes": [
+    {
+      "id": 1,
+      "node": 1,
+      "ux": 1,
+      "uy": 2,
+      "rz": 3
+    },
+    {
+      "id": 2,
+      "node": 2,
+      "ux": 4,
+      "uy": 5,
+      "rz": 6
+    },
+    {
+      "id": 3,
+      "node": 3,
+      "ux": 7,
+      "uy": 8,
+      "rz": 9
+    },
+    {
+      "id": 4,
+      "node": 4,
+      "ux": 10,
+      "uy": 11,
+      "rz": 12
+    }
+  ],
+  "sections": [
+    {
+      "id": 1,
+      "E": 210000000.0,
+      "A": 0.00182,
+      "I": 5.72e-06
+    }
+  ],
+  "elements": [
+    {
+      "id": 1,
+      "i": 1,
+      "j": 2,
+      "section": 1
+    },
+    {
+      "id": 2,
+      "i": 2,
+      "j": 3,
+      "section": 1
+    },
+    {
+      "id": 3,
+      "i": 3,
+      "j": 4,
+      "section": 1
+    }
+  ],
+  "supports": [
+    {
+      "node": 1,
+      "ux": true,
+      "uy": true,
+      "rz": false
+    },
+    {
+      "node": 4,
+      "ux": true,
+      "uy": true,
+      "rz": false
+    }
+  ],
+  "nodal_loads": [],
+  "element_loads": [],
+  "problem_type": "Dynamic - Natural frequencies and modes",
+  "number_of_eigenvectors": 5,
+  "mass": [
+    {
+      "dof_id": 4,
+      "mass": 1000.0
+    },
+    {
+      "dof_id": 7,
+      "mass": 1000.0
+    }
+  ]
+}
