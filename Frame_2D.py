@@ -901,7 +901,7 @@ class Model:
             ax.plot(xs, ys, 'r', linewidth=2)
 
         lam = self.eigenvalues[mode_index]
-        ax.set_title(f"Eigen shape -  Eigen number: {lam:.6e}")
+        ax.set_title(f"Eigen shape -  Eigen number: {lam:.2f}")
         ax.set_aspect('equal')
         ax.margins(0.2)
         ax.set_axis_off()
