@@ -276,7 +276,7 @@ class Model:
         return model
 
     def normalize_ids(self):
-        """Přečísluje ID na souvislé řady (1..n), aby byly konzistentní pro solver."""
+        """Přečísluje ID na souvislé řady (1..n), aby byly konzistentní pro r."""
 
         if not self.nodes:
             return
@@ -772,7 +772,7 @@ class Model:
         K = self.assemble_global_stiffness()
         K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
 
-        eigvals, eigvecs = eig(K, -K_sigma)
+        eigvals, eigvecs = eig(K, -K_sigma) # Matice K_sigma může být singulární, proto pozor na použitý algoritmus výpočtu vlastního problému
 
         order = np.argsort(eigvals.real)
         eigvals = eigvals[order].real
