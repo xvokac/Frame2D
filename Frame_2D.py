@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from collections import defaultdict
+from scipy.linalg import eig
 
 
 
@@ -771,8 +772,7 @@ class Model:
         K = self.assemble_global_stiffness()
         K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
 
-        A = -np.linalg.solve(K_sigma, K)
-        eigvals, eigvecs = np.linalg.eig(A)
+        eigvals, eigvecs = eig(K, -K_sigma)
 
         order = np.argsort(eigvals.real)
         eigvals = eigvals[order].real
