@@ -901,7 +901,7 @@ class Model:
             ax.plot(xs, ys, 'r', linewidth=2)
 
         lam = self.eigenvalues[mode_index]
-        ax.set_title(fr"Eigen shape no. {mode_index+1} -  $\lambda$ = {lam:.2f}")
+        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\lambda$ = {lam:.2f}")
         ax.set_aspect('equal')
         ax.margins(0.2)
         ax.set_axis_off()
@@ -1408,7 +1408,7 @@ class Model:
 
         omega = np.sqrt(max(self.eigenvalues[mode_index], 0.0))
         freq_hz = omega / (2 * np.pi)
-        ax.set_title(f"Shape mode no. {mode_index + 1}: f = {freq_hz:.3f} Hz")
+        ax.set_title(fr"Shape mode no. {mode_index + 1}: $f$ = {freq_hz:.3f} Hz")
         ax.set_aspect('equal')
         ax.margins(0.2)
         ax.set_axis_off()
