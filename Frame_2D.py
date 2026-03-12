@@ -834,7 +834,7 @@ class Model:
                     max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
                     max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
                 )
-                scale = 0.1 * size / max_disp
+                scale = 0.2 * size / max_disp
 
         fig, ax = plt.subplots()
 
