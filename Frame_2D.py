@@ -2,6 +2,7 @@
 
 import numpy as np
 import json
+import argparse
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -1927,8 +1928,17 @@ class Model:
                         ax.add_patch(circle)
 
 
-if __name__ == '__main__':
-    model = Model.from_json('test_model.json')
+def main():
+    parser = argparse.ArgumentParser(
+        description="2D rámový výpočet z JSON modelu."
+    )
+    parser.add_argument(
+        "input_file",
+        help="Cesta k vstupnímu JSON souboru (např. test_model.json).",
+    )
+    args = parser.parse_args()
+
+    model = Model.from_json(args.input_file)
     print(f"problem_type: {model.problem_type}")
 
     if model.problem_type == "Static":
@@ -1963,3 +1973,7 @@ if __name__ == '__main__':
         model.plot_internal_forces('V')
         model.plot_internal_forces('N')
         model.show_all_plots()
+
+
+if __name__ == '__main__':
+    main()
