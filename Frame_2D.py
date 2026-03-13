@@ -1454,6 +1454,9 @@ class Model:
     def print_reactions(self):
         print("\n" + self.format_reactions())
 
+    def reaction_in_dof(self, dof_id):
+        return self.compute_reactions().get(dof_id)
+
                 
     #koncové síly na prvku
     def element_end_forces(self, elem):
