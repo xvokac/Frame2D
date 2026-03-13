@@ -1592,6 +1592,59 @@ class Model:
 
         return qx, qz
 
+    def element_internal_force_extreme(self, element, kind="M", extreme="max"):
+        """
+        Vrátí minimum nebo maximum vnitřní síly na daném prvku.
+
+        Parameters
+        ----------
+        element : int | Element
+            ID prvku nebo instance Element.
+        kind : str
+            Typ vnitřní síly: "N", "V" nebo "M".
+        extreme : str
+            Typ extrému: "min" nebo "max".
+
+        Returns
+        -------
+        tuple[float, float]
+            (x, hodnota) kde x je lokální souřadnice na prvku od i-uzlu.
+        """
+        if isinstance(element, Element):
+            elem = element
+        else:
+            if element not in self.elements:
+                raise KeyError(f"Element {element} does not exist")
+            elem = self.elements[element]
+
+        kind = kind.upper()
+        if kind not in ("N", "V", "M"):
+            raise ValueError("kind must be one of 'N', 'V', 'M'")
+
+        extreme = extreme.lower()
+        if extreme not in ("min", "max"):
+            raise ValueError("extreme must be either 'min' or 'max'")
+
+        L, _ = self.element_geometry(elem.id)
+        forces = self.element_end_forces(elem)
+        qz = self.get_element_qz(elem)
+
+        candidates_x = [0.0, L]
+
+        if kind == "M" and abs(qz) > 1e-12:
+            x_ext = -forces[1] / qz
+            if 0.0 < x_ext < L:
+                candidates_x.append(x_ext)
+
+        candidates = []
+        for x in candidates_x:
+            N, V, M = element_diagram(x, L, forces, qz)
+            val = {"N": N, "V": V, "M": M}[kind]
+            candidates.append((x, val))
+
+        key_fn = (lambda item: item[1])
+        return max(candidates, key=key_fn) if extreme == "max" else min(candidates, key=key_fn)
+
     def plot_internal_forces(self, kind="M", scale=None, show=False):
         if scale is None:
             scale = self.auto_scale(kind)
