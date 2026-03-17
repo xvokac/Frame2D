@@ -264,13 +264,13 @@ class Frame2DGui:
             rz = bool(support.get("rz"))
 
             if ux and uy and rz:
-                self.canvas.create_rectangle(x - 8, y + 8, x + 8, y + 24, outline="firebrick", width=2)
+                self.canvas.create_rectangle(x - 8, y + 8, x + 8, y - 8, outline="firebrick", width=2)
             elif ux and uy:
-                self.canvas.create_polygon(x, y + 8, x - 10, y + 24, x + 10, y + 24, outline="firebrick", fill="", width=2)
+                self.canvas.create_polygon(x, y , x - 10, y + 16, x + 10, y + 16, outline="firebrick", fill="", width=2)
             elif uy:
-                self.canvas.create_polygon(x, y + 8, x - 10, y + 20, x + 10, y + 20, outline="firebrick", fill="", width=2)
-                self.canvas.create_oval(x - 9, y + 20, x - 3, y + 26, outline="firebrick", width=2)
-                self.canvas.create_oval(x + 3, y + 20, x + 9, y + 26, outline="firebrick", width=2)
+                self.canvas.create_polygon(x, y , x - 10, y + 12, x + 10, y + 12, outline="firebrick", fill="", width=2)
+                self.canvas.create_oval(x - 9, y + 12, x - 3, y + 18, outline="firebrick", width=2)
+                self.canvas.create_oval(x + 3, y + 12, x + 9, y + 18, outline="firebrick", width=2)
             else:
                 self.canvas.create_text(x, y + 18, text="S", fill="firebrick")
 
