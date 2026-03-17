@@ -299,7 +299,7 @@ class Frame2DGui:
                 self.canvas.create_text(x + 36 * sign, y - 20, text=f"Fx={fx:g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(fy) > 1e-12:
-                sign = 1 if fy > 0 else =1
+                sign = 1 if fy > 0 else -1
                 self._draw_arrow(x + 14, y + 18 * sign, x + 14, y - 18 * sign)
                 self.canvas.create_text(x + 38, y, text=f"Fy={fy:g}", fill="tomato", font=("TkDefaultFont", 8))
 
