@@ -344,6 +344,8 @@ class Frame2DGui:
                     mx = x1 + t * dx
                     my = y1 + t * dy
                     self._draw_arrow(mx - 22 * ux * sign, my - 22 * uy * sign, mx + 22 * ux * sign, my + 22 * uy * sign)
+                mx = x1 + .5 * dx
+                my = y1 + .5 * dy
                 self.canvas.create_text(mx + 10 * nx, my + 10 * ny, text=f"qx={np.abs(qx):g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(qz) > 1e-12:
