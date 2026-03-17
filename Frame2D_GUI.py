@@ -300,8 +300,8 @@ class Frame2DGui:
 
             if abs(fy) > 1e-12:
                 sign = 1 if fy > 0 else -1
-                self._draw_arrow(x , y , x + 10 , y - 36 * sign)
-                self.canvas.create_text(x + 10, y - 36 * sign, text=f"Fy={fy:g}", fill="tomato", font=("TkDefaultFont", 8))
+                self._draw_arrow(x , y , x , y - 36 * sign)
+                self.canvas.create_text(x , y - 46 * sign, text=f"Fy={fy:g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(mz) > 1e-12:
                 r = 12
