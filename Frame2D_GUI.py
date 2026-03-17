@@ -272,7 +272,9 @@ class Frame2DGui:
                 self.canvas.create_oval(x - 9, y + 12, x - 3, y + 18, outline="firebrick", width=2)
                 self.canvas.create_oval(x + 3, y + 12, x + 9, y + 18, outline="firebrick", width=2)
             else:
-                self.canvas.create_text(x, y + 18, text="S", fill="firebrick")
+                self.canvas.create_polygon(x, y , x - 12, y + 10, x - 12, y - 10, outline="firebrick", fill="", width=2)
+                self.canvas.create_oval(x - 12, y + 9, x - 18, y + 3, outline="firebrick", width=2)
+                self.canvas.create_oval(x - 12, y - 3, x - 18, y - 9, outline="firebrick", width=2)
 
     def _draw_arrow(self, x1, y1, x2, y2, color="tomato", width=2):
         self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width, arrow=tk.LAST)
