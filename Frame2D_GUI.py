@@ -296,12 +296,12 @@ class Frame2DGui:
             if abs(fx) > 1e-12:
                 sign = 1 if fx > 0 else -1
                 self._draw_arrow(x , y , x + 36 * sign, y )
-                self.canvas.create_text(x + 36 * sign, y - 10, text=f"Fx={fx:g}", fill="tomato", font=("TkDefaultFont", 8))
+                self.canvas.create_text(x + 36 * sign, y - 10, text=f"Fx={np.abs(fx):g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(fy) > 1e-12:
                 sign = 1 if fy > 0 else -1
                 self._draw_arrow(x , y , x , y - 36 * sign)
-                self.canvas.create_text(x , y - 46 * sign, text=f"Fy={fy:g}", fill="tomato", font=("TkDefaultFont", 8))
+                self.canvas.create_text(x , y - 46 * sign, text=f"Fy={np.abs(fy):g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(mz) > 1e-12:
                 r = 12
@@ -310,7 +310,7 @@ class Frame2DGui:
                     self._draw_arrow(x + 8, y - 8, x + 12, y )
                 else:
                     self._draw_arrow(x + 8, y + 8, x + 12, y )
-                self.canvas.create_text(x - 26, y - 18, text=f"Mz={mz:g}", fill="tomato", font=("TkDefaultFont", 8))
+                self.canvas.create_text(x - 26, y - 18, text=f"Mz={np.abs(mz):g}", fill="tomato", font=("TkDefaultFont", 8))
 
     def _draw_element_loads(self):
         for load in self.element_loads:
@@ -339,10 +339,11 @@ class Frame2DGui:
 
             if abs(qx) > 1e-12:
                 sign = 1 if qx > 0 else -1
-                mx = (x1 + x2) / 2
-                my = (y1 + y2) / 2
-                self._draw_arrow(mx - 22 * ux * sign, my - 22 * uy * sign, mx + 22 * ux * sign, my + 22 * uy * sign)
-                self.canvas.create_text(mx + 10 * nx, my + 10 * ny, text=f"qx={qx:g}", fill="tomato", font=("TkDefaultFont", 8))
+                for t in (0.2, 0.5, 0.8):
+                    mx = x1 + t * dx
+                    my = y1 + t * dy
+                    self._draw_arrow(mx - 22 * ux * sign, my - 22 * uy * sign, mx + 22 * ux * sign, my + 22 * uy * sign)
+                self.canvas.create_text(mx + 10 * nx, my + 10 * ny, text=f"qx={np.abs(qx):g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(qz) > 1e-12:
                 sign = 1 if qz > 0 else -1
@@ -354,7 +355,7 @@ class Frame2DGui:
                     self._draw_arrow(sx, sy, px, py)
                 tx = (x1 + x2) / 2 + 26 * nx * sign
                 ty = (y1 + y2) / 2 + 26 * ny * sign
-                self.canvas.create_text(tx, ty, text=f"qz={qz:g}", fill="tomato", font=("TkDefaultFont", 8))
+                self.canvas.create_text(tx, ty, text=f"qz={np.abs(qz):g}", fill="tomato", font=("TkDefaultFont", 8))
 
     def _get_primary_dof_node_id(self, node_id):
         candidates = [did for did, d in self.dof_nodes.items() if d["node"] == node_id]
