@@ -306,10 +306,10 @@ class Frame2DGui:
             if abs(mz) > 1e-12:
                 r = 12
                 self.canvas.create_arc(x - r, y - r, x + r, y + r, start=30, extent=300, style=tk.ARC, outline="tomato", width=2)
-                if mz > 0:
-                    self._draw_arrow(x + 8, y - 8, x + 10, y + 2)
+                if mz < 0:
+                    self._draw_arrow(x + 8, y - 8, x + 12, y )
                 else:
-                    self._draw_arrow(x + 10, y - 18, x + 8, y - 8)
+                    self._draw_arrow(x + 8, y + 8, x + 12, y )
                 self.canvas.create_text(x - 26, y - 18, text=f"Mz={mz:g}", fill="tomato", font=("TkDefaultFont", 8))
 
     def _draw_element_loads(self):
