@@ -2,6 +2,7 @@ import json
 import math
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import numpy as np
 
 from Frame_2D import Model
 
