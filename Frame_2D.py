@@ -1322,6 +1322,7 @@ class Model:
 
         #další nastavení grafu    
         ax.set_aspect('equal')
+        ax.margins(0.2)
         plt.title(r"Deformation and values $(u^2+v^2)^{1/2}$")
         if show:
             plt.show()
