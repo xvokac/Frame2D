@@ -345,7 +345,7 @@ class Frame2DGui:
                 self.canvas.create_text(mx + 10 * nx, my + 10 * ny, text=f"qx={qx:g}", fill="tomato", font=("TkDefaultFont", 8))
 
             if abs(qz) > 1e-12:
-                sign = -1 if qz > 0 else 1
+                sign = 1 if qz > 0 else -1
                 for t in (0.2, 0.5, 0.8):
                     px = x1 + t * dx
                     py = y1 + t * dy
