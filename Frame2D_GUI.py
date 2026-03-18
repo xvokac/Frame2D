@@ -44,6 +44,8 @@ class Frame2DGui:
         self.view_origin_y = 620.0
         self.grid_unit = 1.0
 
+        self.data_editor = None
+
         self._build_ui()
 
     def _build_ui(self):
@@ -826,9 +828,24 @@ class Frame2DGui:
         self.reactions_text.configure(state=tk.DISABLED)
 
     def open_data_editor(self):
+        if self.data_editor is not None and self.data_editor.winfo_exists():
+            self.data_editor.deiconify()
+            self.data_editor.lift()
+            self.data_editor.focus_force()
+            self.data_editor.grab_set()
+            return
+
         editor = tk.Toplevel(self.root)
+        self.data_editor = editor
         editor.title("Edit inputs")
         editor.geometry("980x560")
+        editor.transient(self.root)
+        editor.grab_set()
+        editor.lift()
+        editor.focus_force()
+        editor.attributes("-topmost", True)
+        editor.after(0, lambda: editor.attributes("-topmost", False))
+        editor.protocol("WM_DELETE_WINDOW", lambda: self._close_data_editor(editor))
 
         notebook = ttk.Notebook(editor)
         notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
@@ -940,7 +957,7 @@ class Frame2DGui:
                     },
                 )
                 self.draw_scene()
-                editor.destroy()
+                self._close_data_editor(editor)
                 messagebox.showinfo("Editing," "Data has been updated.")
             except Exception as exc:
                 messagebox.showerror("Editace", str(exc))
@@ -965,8 +982,22 @@ class Frame2DGui:
         for idx, row in enumerate(rows):
             tree.insert("", tk.END, iid=str(idx), values=[row.get(c, "") for c in columns])
 
-    def _edit_row_dialog(self, title, columns, initial=None):
-        win = tk.Toplevel(self.root)
+    def _close_data_editor(self, editor=None):
+        editor = editor or self.data_editor
+        if editor is None:
+            return
+        try:
+            editor.grab_release()
+        except tk.TclError:
+            pass
+        if editor.winfo_exists():
+            editor.destroy()
+        if editor == self.data_editor:
+            self.data_editor = None
+
+    def _edit_row_dialog(self, title, columns, initial=None, parent=None):
+        parent = parent or self.data_editor or self.root
+        win = tk.Toplevel(parent)
         win.title(title)
         entries = {}
         initial = initial or {}
@@ -985,13 +1016,19 @@ class Frame2DGui:
             win.destroy()
 
         ttk.Button(win, text="Save", command=save_row).grid(row=len(columns), column=0, columnspan=2, pady=8)
-        win.transient(self.root)
+        win.transient(parent)
         win.grab_set()
-        self.root.wait_window(win)
+        win.lift()
+        win.focus_force()
+        parent.wait_window(win)
+        if parent is not self.root and parent.winfo_exists():
+            parent.grab_set()
+            parent.lift()
+            parent.focus_force()
         return result["row"]
 
     def _add_table_row(self, tab_name, columns, data_tables, trees):
-        row = self._edit_row_dialog(f"Add: {tab_name}", columns)
+        row = self._edit_row_dialog(f"Add: {tab_name}", columns, parent=self.data_editor)
         if row is None:
             return
         data_tables[tab_name].append(row)
@@ -1003,7 +1040,7 @@ class Frame2DGui:
         if not sel:
             return
         idx = int(sel[0])
-        row = self._edit_row_dialog(f"Upravit: {tab_name}", columns, data_tables[tab_name][idx])
+        row = self._edit_row_dialog(f"Upravit: {tab_name}", columns, data_tables[tab_name][idx], parent=self.data_editor)
         if row is None:
             return
         data_tables[tab_name][idx] = row
