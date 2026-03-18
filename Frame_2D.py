@@ -1,4 +1,4 @@
-## ODM
+## Frame2D -solver
 
 import numpy as np
 import json
@@ -903,8 +903,7 @@ class Model:
 
         lam = self.eigenvalues[mode_index]
         ax.set_title(fr"Eigen shape no. {mode_index+1}: $\lambda$ = {lam:.2f}")
-        ax.set_aspect('equal')
-        ax.margins(0.2)
+        ax.axis("equal")
         ax.set_axis_off()
 
         if show:
@@ -1321,8 +1320,7 @@ class Model:
             )
 
         #další nastavení grafu    
-        ax.set_aspect('equal')
-        ax.margins(0.2)
+        ax.axis("equal")
         plt.title(r"Deformation and values $(u^2+v^2)^{1/2}$")
         if show:
             plt.show()
@@ -1409,8 +1407,7 @@ class Model:
         omega = np.sqrt(max(self.eigenvalues[mode_index], 0.0))
         freq_hz = omega / (2 * np.pi)
         ax.set_title(fr"Shape mode no. {mode_index + 1}: $f$ = {freq_hz:.3f} Hz")
-        ax.set_aspect('equal')
-        ax.margins(0.2)
+        ax.axis("equal")
         ax.set_axis_off()
 
         if show:
