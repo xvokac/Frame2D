@@ -340,7 +340,7 @@ class Frame2DGui:
 
             if abs(qx) > 1e-12:
                 sign = 1 if qx > 0 else -1
-                for t in (0.2, 0.5, 0.8):
+                for t in (0.2, 0.4, 0.6, 0.8):
                     mx = x1 + t * dx
                     my = y1 + t * dy
                     self._draw_arrow(mx - 22 * ux * sign, my - 22 * uy * sign, mx + 22 * ux * sign, my + 22 * uy * sign)
@@ -350,7 +350,7 @@ class Frame2DGui:
 
             if abs(qz) > 1e-12:
                 sign = 1 if qz > 0 else -1
-                for t in (0.2, 0.5, 0.8):
+                for t in (0.2, 0.4, 0.6, 0.8):
                     px = x1 + t * dx
                     py = y1 + t * dy
                     sx = px + 18 * nx * sign
