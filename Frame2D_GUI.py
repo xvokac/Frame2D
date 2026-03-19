@@ -808,8 +808,12 @@ class Frame2DGui:
         try:
             model = Model.from_json(tmp_path)
 
-            if model.problem_type in {"Dynamic - Natural frequencies and modes", "Dynamic - steady state"}:
+            if model.problem_type == "Dynamic - Natural frequencies and modes":
                 model.solve_dynamic()
+                self.show_reactions(model.format_dynamic_results())
+                model.plot_all_mode_shapes(show=True)
+            elif model.problem_type == "Dynamic - steady state":
+                model.solve_dynamic_steady_state()
                 self.show_reactions(model.format_dynamic_results())
                 model.plot_all_mode_shapes(show=True)
             elif model.problem_type == "Stability":

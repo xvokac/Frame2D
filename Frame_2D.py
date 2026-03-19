@@ -236,6 +236,10 @@ class Model:
         self._dynamic_back_substitution = np.array([[]])
         self.eigenvalues = np.array([])
         self.eigenvectors = np.array([[]])
+        self.dynamic_force_vector = np.array([], dtype=complex)
+        self.dynamic_modal_coordinates = np.array([], dtype=complex)
+        self.dynamic_response = np.array([], dtype=complex)
+        self.dynamic_excitation_frequency = None
 
     @classmethod
     def from_json(cls, path):
@@ -770,8 +774,61 @@ class Model:
         n = min(self.number_of_eigenvectors, len(eigvals))
         self.eigenvalues = eigvals[:n]
         self.eigenvectors = eigvecs[:, :n]
+        self.dynamic_force_vector = np.zeros(len(reduced_dofs), dtype=complex)
+        self.dynamic_modal_coordinates = np.zeros(n, dtype=complex)
+        self.dynamic_response = np.zeros(len(reduced_dofs), dtype=complex)
+        self.dynamic_excitation_frequency = None
 
         return self.eigenvalues, self.eigenvectors, reduced_dofs
+
+    def solve_dynamic_steady_state(self):
+        eigvals, eigvecs, reduced_dofs = self.solve_dynamic()
+
+        if len(self.dynamic_nodal_forces) == 0:
+            raise ValueError("Dynamic - steady state requires at least one DynamicNodalForce entry.")
+
+        omega_values = {float(item.Omega) for item in self.dynamic_nodal_forces}
+        if len(omega_values) != 1:
+            raise ValueError("Dynamic - steady state currently requires the same Omega for all DynamicNodalForce entries.")
+
+        omega_exc = omega_values.pop()
+        reduced_dof_set = set(reduced_dofs)
+        invalid_dofs = sorted({item.dof_id for item in self.dynamic_nodal_forces if item.dof_id not in reduced_dof_set})
+        if invalid_dofs:
+            raise ValueError(
+                "DynamicNodalForce dof_id must be active in reduced stiffness matrix K_red. "
+                f"Invalid dof_id values: {invalid_dofs}; active reduced DOFs: {reduced_dofs}"
+            )
+
+        f = np.zeros(len(reduced_dofs), dtype=complex)
+        for item in self.dynamic_nodal_forces:
+            idx = reduced_dofs.index(item.dof_id)
+            f[idx] += complex(item.Re_F, item.Im_F)
+
+        damping_lookup = {item.mode: float(item.zeta) for item in self.damping_ratio}
+        q = np.zeros(len(eigvals), dtype=complex)
+
+        for mode_idx in range(len(eigvals)):
+            phi_i = eigvecs[:, mode_idx]
+            omega_i = np.sqrt(max(eigvals[mode_idx], 0.0))
+            zeta_i = damping_lookup.get(mode_idx + 1, 0.0)
+            f_norm = np.dot(phi_i.T, f)
+            denominator = (omega_i ** 2 - omega_exc ** 2) + 2j * zeta_i * omega_i * omega_exc
+            if abs(denominator) < 1e-12:
+                raise ValueError(
+                    f"Steady-state denominator is zero for mode {mode_idx + 1}. "
+                    "Adjust damping ratio or excitation frequency."
+                )
+            q[mode_idx] = f_norm / denominator
+
+        u_red = eigvecs @ q
+
+        self.dynamic_force_vector = f
+        self.dynamic_modal_coordinates = q
+        self.dynamic_response = u_red
+        self.dynamic_excitation_frequency = omega_exc
+
+        return u_red, f, reduced_dofs
 
 
     def _validate_stability_qx(self):
@@ -1023,6 +1080,15 @@ class Model:
             lines.append(f"lambda_{i} = {lam:.6e}")
             mode = self.eigenvectors[:, i - 1]
             lines.append(f"U_{i} = {mode}")
+
+        if self.dynamic_excitation_frequency is not None:
+            lines.append("")
+            lines.append("DYNAMIC STEADY-STATE SOLUTION:")
+            lines.append(f"Omega = {self.dynamic_excitation_frequency:.6e}")
+            lines.append(f"f = {self.dynamic_force_vector}")
+            for i, q_i in enumerate(self.dynamic_modal_coordinates, start=1):
+                lines.append(f"q_{i} = {q_i}")
+            lines.append(f"u = {self.dynamic_response}")
 
         return "\n".join(lines)
 
@@ -2019,8 +2085,13 @@ def main():
         model.plot_internal_forces('N')
         model.show_all_plots()
 
-    elif model.problem_type in {"Dynamic - Natural frequencies and modes", "Dynamic - steady state"}:
+    elif model.problem_type == "Dynamic - Natural frequencies and modes":
         model.solve_dynamic()
+        model.print_dynamic_results()
+        model.plot_all_mode_shapes(show=True)
+
+    elif model.problem_type == "Dynamic - steady state":
+        model.solve_dynamic_steady_state()
         model.print_dynamic_results()
         model.plot_all_mode_shapes(show=True)
 
