@@ -69,6 +69,20 @@ class Mass:
     m: float
 
 
+@dataclass
+class DynamicNodalForce:
+    dof_id: int
+    Re_F: float
+    Im_F: float
+    Omega: float
+
+
+@dataclass
+class DampingRatio:
+    mode: int
+    zeta: float
+
+
 
 
 
@@ -213,6 +227,8 @@ class Model:
         self.problem_type = "Static"
         self.number_of_eigenvectors = 3
         self.mass = []
+        self.dynamic_nodal_forces = []
+        self.damping_ratio = []
         self.U = []
         self.dof_map = {}
         self.dynamic_dofs = []
@@ -271,6 +287,30 @@ class Model:
             except (TypeError, ValueError):
                 continue
             model.mass.append(Mass(dof_id=dof_id, m=m_val))
+        model.dynamic_nodal_forces = []
+        for item in data.get("dynamic_nodal_forces", []):
+            try:
+                model.dynamic_nodal_forces.append(
+                    DynamicNodalForce(
+                        dof_id=int(item.get("dof_id", item.get("dof"))),
+                        Re_F=float(item.get("Re_F", 0.0)),
+                        Im_F=float(item.get("Im_F", 0.0)),
+                        Omega=float(item.get("Omega", 0.0)),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        model.damping_ratio = []
+        for item in data.get("damping_ratio", []):
+            try:
+                model.damping_ratio.append(
+                    DampingRatio(
+                        mode=int(item.get("mode")),
+                        zeta=float(item.get("zeta")),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
 
         model.normalize_ids()
 
@@ -389,6 +429,21 @@ class Model:
             for item in self.mass
             if item.dof_id in dof_id_map
         ]
+        self.dynamic_nodal_forces = [
+            DynamicNodalForce(
+                dof_id=dof_id_map[item.dof_id],
+                Re_F=float(item.Re_F),
+                Im_F=float(item.Im_F),
+                Omega=float(item.Omega),
+            )
+            for item in self.dynamic_nodal_forces
+            if item.dof_id in dof_id_map
+        ]
+        self.damping_ratio = [
+            DampingRatio(mode=int(item.mode), zeta=float(item.zeta))
+            for item in self.damping_ratio
+            if int(item.mode) >= 1
+        ]
 
     def to_json_data(self):
         return {
@@ -428,6 +483,19 @@ class Model:
             "mass": [
                 {"dof_id": m.dof_id, "mass": m.m}
                 for m in sorted(self.mass, key=lambda item: item.dof_id)
+            ],
+            "dynamic_nodal_forces": [
+                {
+                    "dof_id": item.dof_id,
+                    "Re_F": item.Re_F,
+                    "Im_F": item.Im_F,
+                    "Omega": item.Omega,
+                }
+                for item in sorted(self.dynamic_nodal_forces, key=lambda val: (val.dof_id, val.Omega))
+            ],
+            "damping_ratio": [
+                {"mode": item.mode, "zeta": item.zeta}
+                for item in sorted(self.damping_ratio, key=lambda val: val.mode)
             ],
         }
 
@@ -1951,7 +2019,7 @@ def main():
         model.plot_internal_forces('N')
         model.show_all_plots()
 
-    elif model.problem_type == "Dynamic - Natural frequencies and modes":
+    elif model.problem_type in {"Dynamic - Natural frequencies and modes", "Dynamic - steady state"}:
         model.solve_dynamic()
         model.print_dynamic_results()
         model.plot_all_mode_shapes(show=True)
