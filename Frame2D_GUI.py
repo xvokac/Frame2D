@@ -12,6 +12,7 @@ class Frame2DGui:
         "Static",
         "Stability",
         "Dynamic - Natural frequencies and modes",
+        "Dynamic - steady state",
     )
 
     def __init__(self, root: tk.Tk):
@@ -28,6 +29,8 @@ class Frame2DGui:
         self.problem_type = "Static"
         self.number_of_eigenvectors = 3
         self.mass = []
+        self.dynamic_nodal_forces = []
+        self.damping_ratio = []
 
         self.next_node_id = 1
         self.next_dof_node_id = 1
@@ -696,6 +699,8 @@ class Frame2DGui:
             "problem_type": self.problem_type,
             "number_of_eigenvectors": self.number_of_eigenvectors,
             "mass": self.mass,
+            "dynamic_nodal_forces": self.dynamic_nodal_forces,
+            "damping_ratio": self.damping_ratio,
         }
 
     def save_json(self):
@@ -743,6 +748,8 @@ class Frame2DGui:
             self.problem_type = "Static"
         self.number_of_eigenvectors = int(data.get("number_of_eigenvectors", 3))
         self.mass = data.get("mass", [])
+        self.dynamic_nodal_forces = data.get("dynamic_nodal_forces", [])
+        self.damping_ratio = data.get("damping_ratio", [])
 
         self.next_node_id = max(self.nodes.keys(), default=0) + 1
         self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
@@ -801,7 +808,7 @@ class Frame2DGui:
         try:
             model = Model.from_json(tmp_path)
 
-            if model.problem_type == "Dynamic - Natural frequencies and modes":
+            if model.problem_type in {"Dynamic - Natural frequencies and modes", "Dynamic - steady state"}:
                 model.solve_dynamic()
                 self.show_reactions(model.format_dynamic_results())
                 model.plot_all_mode_shapes(show=True)
@@ -871,6 +878,8 @@ class Frame2DGui:
             "dof nodes": [dict(v) for v in sorted(self.dof_nodes.values(), key=lambda d: d["id"])],
             "release rotation": self._collect_release_rows(),
             "mass": [dict(v) for v in self.mass],
+            "dynamic nodal forces": [dict(v) for v in self.dynamic_nodal_forces],
+            "damping ratio": [dict(v) for v in self.damping_ratio],
         }
 
         trees = {}
@@ -916,35 +925,77 @@ class Frame2DGui:
         number_of_eigenvectors_var = tk.StringVar(value=str(self.number_of_eigenvectors))
         ttk.Entry(header, textvariable=number_of_eigenvectors_var, width=12).grid(row=1, column=1, sticky="w", padx=4, pady=4)
 
-        ttk.Label(
-            special_tab,
-            text="Mass table (lumped masses in DOF for dynamic analysis)",
-        ).pack(anchor="w", padx=8, pady=(0, 4))
+        switcher = ttk.Frame(special_tab)
+        switcher.pack(fill=tk.X, padx=8, pady=(4, 8))
 
-        mass_columns = ["dof_id", "mass"]
-        mass_tree = ttk.Treeview(special_tab, columns=mass_columns, show="headings", height=10)
-        for col in mass_columns:
-            mass_tree.heading(col, text=col)
-            mass_tree.column(col, width=140, anchor="center")
-        mass_tree.pack(fill=tk.BOTH, expand=True, padx=8)
-        self._refresh_tree(mass_tree, mass_columns, data_tables["mass"])
+        table_host = ttk.Frame(special_tab)
+        table_host.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        mass_btns = ttk.Frame(special_tab)
-        mass_btns.pack(fill=tk.X, pady=6, padx=6)
+        special_trees = {}
+        table_frames = {}
+
+        def create_special_table(tab_name, label_text, columns):
+            frame = ttk.Frame(table_host)
+            table_frames[tab_name] = frame
+
+            ttk.Label(frame, text=label_text).pack(anchor="w", pady=(0, 4))
+            tree = ttk.Treeview(frame, columns=columns, show="headings", height=10)
+            for col in columns:
+                tree.heading(col, text=col)
+                tree.column(col, width=140, anchor="center")
+            tree.pack(fill=tk.BOTH, expand=True)
+            self._refresh_tree(tree, columns, data_tables[tab_name])
+            special_trees[tab_name] = tree
+
+            btns = ttk.Frame(frame)
+            btns.pack(fill=tk.X, pady=6)
+            ttk.Button(
+                btns,
+                text=f"Add {tab_name}",
+                command=lambda n=tab_name, cols=columns: self._add_table_row(n, cols, data_tables, special_trees),
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Button(
+                btns,
+                text=f"Edit {tab_name}",
+                command=lambda n=tab_name, cols=columns: self._edit_table_row(n, cols, data_tables, special_trees),
+            ).pack(side=tk.LEFT, padx=4)
+            ttk.Button(
+                btns,
+                text=f"Delete {tab_name}",
+                command=lambda n=tab_name: self._delete_table_row(n, data_tables, special_trees),
+            ).pack(side=tk.LEFT, padx=4)
+
+        create_special_table("mass", "Mass table (lumped masses in DOF for dynamic analysis)", ["dof_id", "mass"])
+        create_special_table(
+            "dynamic nodal forces",
+            "Dynamic nodal forces (superposition of multiple harmonic loads)",
+            ["dof_id", "Re_F", "Im_F", "Omega"],
+        )
+        create_special_table(
+            "damping ratio",
+            "Damping ratio (one row per considered mode shape)",
+            ["mode", "zeta"],
+        )
+
+        active_special_table = {"name": None}
+
+        def show_special_table(tab_name):
+            current = active_special_table["name"]
+            if current is not None:
+                table_frames[current].pack_forget()
+            table_frames[tab_name].pack(fill=tk.BOTH, expand=True)
+            active_special_table["name"] = tab_name
+
+        ttk.Button(switcher, text="lumped masses", command=lambda: show_special_table("mass")).pack(side=tk.LEFT, padx=4)
         ttk.Button(
-            mass_btns,
-            text="Add mass",
-            command=lambda: self._add_table_row("mass", mass_columns, data_tables, {"mass": mass_tree}),
+            switcher,
+            text="Dynamic nodal forces",
+            command=lambda: show_special_table("dynamic nodal forces"),
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(
-            mass_btns,
-            text="Edit mass",
-            command=lambda: self._edit_table_row("mass", mass_columns, data_tables, {"mass": mass_tree}),
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(
-            mass_btns,
-            text="Delete mass",
-            command=lambda: self._delete_table_row("mass", data_tables, {"mass": mass_tree}),
+            switcher,
+            text="Damping ratio",
+            command=lambda: show_special_table("damping ratio"),
         ).pack(side=tk.LEFT, padx=4)
 
         def apply_changes():
@@ -1185,6 +1236,30 @@ class Frame2DGui:
                 continue
             mass.append({"dof_id": dof_id, "mass": lumped_mass})
 
+        dynamic_nodal_forces = []
+        for r in data_tables.get("dynamic nodal forces", []):
+            try:
+                dof_id = parse_int(r, "dof_id")
+                re_f = parse_float(r, "Re_F", 0.0)
+                im_f = parse_float(r, "Im_F", 0.0)
+                omega = parse_float(r, "Omega", 0.0)
+            except (TypeError, ValueError):
+                continue
+            if dof_id not in valid_dof_ids:
+                continue
+            dynamic_nodal_forces.append({"dof_id": dof_id, "Re_F": re_f, "Im_F": im_f, "Omega": omega})
+
+        damping_ratio = []
+        for r in data_tables.get("damping ratio", []):
+            try:
+                mode = parse_int(r, "mode")
+                zeta = parse_float(r, "zeta")
+            except (TypeError, ValueError):
+                continue
+            if mode < 1:
+                continue
+            damping_ratio.append({"mode": mode, "zeta": zeta})
+
         used_dofs = set(primary_dofs_by_node.values())
         for element in elements.values():
             used_dofs.add(element["i"])
@@ -1204,6 +1279,8 @@ class Frame2DGui:
         self.nodal_loads = nodal_loads
         self.element_loads = element_loads
         self.mass = mass
+        self.dynamic_nodal_forces = dynamic_nodal_forces
+        self.damping_ratio = damping_ratio
 
         if special_config is None:
             special_config = {}
