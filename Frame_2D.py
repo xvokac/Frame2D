@@ -6,6 +6,7 @@ import argparse
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.animation import FuncAnimation
 from collections import defaultdict
 from scipy.linalg import eig
 
@@ -240,6 +241,7 @@ class Model:
         self.dynamic_modal_coordinates = np.array([], dtype=complex)
         self.dynamic_response = np.array([], dtype=complex)
         self.dynamic_excitation_frequency = None
+        self._last_animation = None
 
     @classmethod
     def from_json(cls, path):
@@ -1069,6 +1071,30 @@ class Model:
 
         return U_mode
 
+    def _dynamic_response_full_vector(self):
+        if self.dynamic_response.size == 0:
+            raise ValueError("No dynamic steady-state response available.")
+
+        max_dof = max(
+            max(dn.ux, dn.uy, dn.rz)
+            for dn in self.dof_nodes.values()
+        )
+        U_full = np.zeros(max_dof, dtype=complex)
+
+        if self._dynamic_back_substitution.size:
+            slave_response = self._dynamic_back_substitution @ self.dynamic_response
+            slave_dofs = [
+                dof for dof in self.dynamic_active_dofs
+                if dof not in self.dynamic_dofs
+            ]
+            for i, dof in enumerate(slave_dofs):
+                U_full[dof - 1] = slave_response[i]
+
+        for i, dof in enumerate(self.dynamic_dofs):
+            U_full[dof - 1] = self.dynamic_response[i]
+
+        return U_full
+
     def format_dynamic_results(self):
         if len(self.eigenvalues) == 0:
             return "No dynamic results available."
@@ -1553,6 +1579,125 @@ class Model:
             self.plot_mode_shape(i, show=False)
         if show:
             self.show_all_plots()
+
+    def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
+        if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
+            raise ValueError("Dynamic steady-state solution must be solved before animation.")
+        if self.dynamic_excitation_frequency <= 0:
+            raise ValueError("Omega must be positive to animate one period.")
+
+        U_hat = self._dynamic_response_full_vector()
+
+        if scale is None:
+            max_disp = np.max(np.abs(U_hat))
+            if max_disp == 0:
+                scale = 1.0
+            else:
+                size = max(
+                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
+                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
+                )
+                scale = 0.1 * size / max_disp
+
+        fig, ax = plt.subplots()
+
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], "k--", linewidth=1)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+
+        deformed_lines = []
+        for _ in self.elements.values():
+            line, = ax.plot([], [], "r", linewidth=2)
+            deformed_lines.append(line)
+
+        ax.axis("equal")
+        ax.set_axis_off()
+
+        omega = float(self.dynamic_excitation_frequency)
+        period = 2 * np.pi / omega
+        time_values = np.linspace(0.0, period, max(int(frames_per_period), 2), endpoint=False)
+
+        def update(frame_index):
+            t = time_values[frame_index]
+            U_t = np.real(U_hat * np.exp(1j * omega * t))
+
+            for line, elem in zip(deformed_lines, self.elements.values()):
+                i, j = elem.i, elem.j
+                L, alpha = self.element_geometry(elem.id)
+                c = np.cos(alpha)
+                s = np.sin(alpha)
+
+                di = self.dof_nodes[i]
+                dj = self.dof_nodes[j]
+                ni = self.nodes[di.node_id]
+                xi, yi = ni.x, ni.y
+
+                u_global = np.array([
+                    U_t[di.ux - 1],
+                    U_t[di.uy - 1],
+                    U_t[di.rz - 1],
+                    U_t[dj.ux - 1],
+                    U_t[dj.uy - 1],
+                    U_t[dj.rz - 1],
+                ])
+
+                T = np.array([
+                    [c, s, 0, 0, 0, 0],
+                    [-s, c, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, c, s, 0],
+                    [0, 0, 0, -s, c, 0],
+                    [0, 0, 0, 0, 0, 1],
+                ])
+                u_local = T @ u_global
+
+                v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
+                u1, u2 = u_local[0], u_local[3]
+
+                xs = []
+                ys = []
+                for xi_loc in np.linspace(0, 1, n_points):
+                    N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
+                    N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
+                    N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
+                    N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
+
+                    v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
+                    x_local = xi_loc * L
+                    u_axial = (1 - xi_loc) * u1 + xi_loc * u2
+
+                    xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
+                    yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
+                    xs.append(xg)
+                    ys.append(yg)
+
+                line.set_data(xs, ys)
+
+            ax.set_title(
+                fr"Harmonic response: $u(t)=\Re(\hat{{u}}e^{{i\Omega t}})$, "
+                fr"$t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
+            )
+            return deformed_lines
+
+        interval_ms = 1000 * period / len(time_values)
+        self._last_animation = FuncAnimation(
+            fig,
+            update,
+            frames=len(time_values),
+            interval=interval_ms,
+            blit=False,
+            repeat=True,
+        )
+
+        update(0)
+        if show:
+            plt.show()
 
     #print reakce
     def format_reactions(self):
