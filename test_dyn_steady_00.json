@@ -1,0 +1,72 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "id": 2,
+      "x": 0.0,
+      "y": 1.0
+    }
+  ],
+  "dof_nodes": [
+    {
+      "id": 1,
+      "node": 1,
+      "ux": 1,
+      "uy": 2,
+      "rz": 3
+    },
+    {
+      "id": 2,
+      "node": 2,
+      "ux": 4,
+      "uy": 5,
+      "rz": 6
+    }
+  ],
+  "sections": [
+    {
+      "id": 1,
+      "E": 1.0,
+      "A": 1.0,
+      "I": 1.0
+    }
+  ],
+  "elements": [
+    {
+      "id": 1,
+      "i": 1,
+      "j": 2,
+      "section": 1
+    }
+  ],
+  "supports": [
+    {
+      "node": 1,
+      "ux": true,
+      "uy": true,
+      "rz": false
+    },
+    {
+      "node": 2,
+      "ux": true,
+      "uy": false,
+      "rz": false
+    }
+  ],
+  "nodal_loads": [],
+  "element_loads": [],
+  "problem_type": "Dynamic - Natural frequencies and modes",
+  "number_of_eigenvectors": 3,
+  "mass": [
+    {
+      "dof_id": 5,
+      "mass": 1.0
+    }
+  ],
+  "dynamic_nodal_forces": [],
+  "damping_ratio": []
+}

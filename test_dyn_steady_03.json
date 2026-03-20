@@ -1,0 +1,113 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "x": 1.0,
+      "y": 1.0
+    },
+    {
+      "id": 2,
+      "x": 1.0,
+      "y": 0.0
+    },
+    {
+      "id": 3,
+      "x": 0.0,
+      "y": 1.0
+    }
+  ],
+  "dof_nodes": [
+    {
+      "id": 1,
+      "node": 1,
+      "ux": 1,
+      "uy": 2,
+      "rz": 3
+    },
+    {
+      "id": 2,
+      "node": 2,
+      "ux": 4,
+      "uy": 5,
+      "rz": 6
+    },
+    {
+      "id": 3,
+      "node": 3,
+      "ux": 7,
+      "uy": 8,
+      "rz": 9
+    },
+    {
+      "id": 4,
+      "node": 1,
+      "ux": 1,
+      "uy": 2,
+      "rz": 12
+    }
+  ],
+
+  "sections": [
+    {"id": 1, "E": 210000000, "A": 1820e-6, "I": 5.72e-6}
+  ],
+
+  "elements": [
+    {
+      "id": 1,
+      "i": 3,
+      "j": 4,
+      "section": 1
+    },
+    {
+      "id": 2,
+      "i": 1,
+      "j": 2,
+      "section": 1
+    }
+  ],
+  "supports": [
+    {
+      "node": 3,
+      "ux": true,
+      "uy": true,
+      "rz": false
+    },
+    {
+      "node": 2,
+      "ux": true,
+      "uy": true,
+      "rz": false
+    }
+  ],
+  "nodal_loads": [],
+  "element_loads": [],
+  "problem_type": "Dynamic - steady state",
+  "number_of_eigenvectors": 3,
+  "mass": [
+    {
+      "dof_id": 1,
+      "mass": 1000.0
+    },
+    {
+      "dof_id": 2,
+      "mass": 1000.0
+    }
+  ],
+  "dynamic_nodal_forces": [
+    {
+      "dof_id": 1,
+      "Re_F": 100.0,
+      "Im_F": 0.0,
+      "Omega": 51.41,
+      "multiplier": 1
+    },
+    {
+      "dof_id": 2,
+      "Re_F": 0.0,
+      "Im_F": 100.0,
+      "Omega": 51.41,
+      "multiplier": 1
+    }
+  ],
+  "damping_ratio": []
+}

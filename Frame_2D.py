@@ -6,6 +6,7 @@ import argparse
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.animation import FuncAnimation
 from collections import defaultdict
 from scipy.linalg import eig
 
@@ -67,6 +68,21 @@ class ElementLoad:
 class Mass:
     dof_id: int
     m: float
+
+
+@dataclass
+class DynamicNodalForce:
+    dof_id: int
+    Re_F: float
+    Im_F: float
+    Omega: float
+    multiplier: int = 1
+
+
+@dataclass
+class DampingRatio:
+    mode: int
+    zeta: float
 
 
 
@@ -213,6 +229,8 @@ class Model:
         self.problem_type = "Static"
         self.number_of_eigenvectors = 3
         self.mass = []
+        self.dynamic_nodal_forces = []
+        self.damping_ratio = []
         self.U = []
         self.dof_map = {}
         self.dynamic_dofs = []
@@ -220,6 +238,14 @@ class Model:
         self._dynamic_back_substitution = np.array([[]])
         self.eigenvalues = np.array([])
         self.eigenvectors = np.array([[]])
+        self.dynamic_force_vector = np.array([], dtype=complex)
+        self.dynamic_modal_coordinates = np.array([], dtype=complex)
+        self.dynamic_response = np.array([], dtype=complex)
+        self.dynamic_harmonic_forces = {}
+        self.dynamic_harmonic_modal_coordinates = {}
+        self.dynamic_harmonic_responses = {}
+        self.dynamic_excitation_frequency = None
+        self._last_animation = None
 
     @classmethod
     def from_json(cls, path):
@@ -271,6 +297,31 @@ class Model:
             except (TypeError, ValueError):
                 continue
             model.mass.append(Mass(dof_id=dof_id, m=m_val))
+        model.dynamic_nodal_forces = []
+        for item in data.get("dynamic_nodal_forces", []):
+            try:
+                model.dynamic_nodal_forces.append(
+                    DynamicNodalForce(
+                        dof_id=int(item.get("dof_id", item.get("dof"))),
+                        Re_F=float(item.get("Re_F", 0.0)),
+                        Im_F=float(item.get("Im_F", 0.0)),
+                        Omega=float(item.get("Omega", 0.0)),
+                        multiplier=max(1, int(item.get("multiplier", item.get("Multiplier", 1)))),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        model.damping_ratio = []
+        for item in data.get("damping_ratio", []):
+            try:
+                model.damping_ratio.append(
+                    DampingRatio(
+                        mode=int(item.get("mode")),
+                        zeta=float(item.get("zeta")),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
 
         model.normalize_ids()
 
@@ -389,6 +440,22 @@ class Model:
             for item in self.mass
             if item.dof_id in dof_id_map
         ]
+        self.dynamic_nodal_forces = [
+            DynamicNodalForce(
+                dof_id=dof_id_map[item.dof_id],
+                Re_F=float(item.Re_F),
+                Im_F=float(item.Im_F),
+                Omega=float(item.Omega),
+                multiplier=max(1, int(getattr(item, "multiplier", 1))),
+            )
+            for item in self.dynamic_nodal_forces
+            if item.dof_id in dof_id_map
+        ]
+        self.damping_ratio = [
+            DampingRatio(mode=int(item.mode), zeta=float(item.zeta))
+            for item in self.damping_ratio
+            if int(item.mode) >= 1
+        ]
 
     def to_json_data(self):
         return {
@@ -428,6 +495,20 @@ class Model:
             "mass": [
                 {"dof_id": m.dof_id, "mass": m.m}
                 for m in sorted(self.mass, key=lambda item: item.dof_id)
+            ],
+            "dynamic_nodal_forces": [
+                {
+                    "dof_id": item.dof_id,
+                    "Re_F": item.Re_F,
+                    "Im_F": item.Im_F,
+                    "Omega": item.Omega,
+                    "multiplier": getattr(item, "multiplier", 1),
+                }
+                for item in sorted(self.dynamic_nodal_forces, key=lambda val: (val.dof_id, val.Omega, getattr(val, "multiplier", 1)))
+            ],
+            "damping_ratio": [
+                {"mode": item.mode, "zeta": item.zeta}
+                for item in sorted(self.damping_ratio, key=lambda val: val.mode)
             ],
         }
 
@@ -702,8 +783,80 @@ class Model:
         n = min(self.number_of_eigenvectors, len(eigvals))
         self.eigenvalues = eigvals[:n]
         self.eigenvectors = eigvecs[:, :n]
+        self.dynamic_force_vector = np.zeros(len(reduced_dofs), dtype=complex)
+        self.dynamic_modal_coordinates = np.zeros(n, dtype=complex)
+        self.dynamic_response = np.zeros(len(reduced_dofs), dtype=complex)
+        self.dynamic_harmonic_forces = {}
+        self.dynamic_harmonic_modal_coordinates = {}
+        self.dynamic_harmonic_responses = {}
+        self.dynamic_excitation_frequency = None
 
         return self.eigenvalues, self.eigenvectors, reduced_dofs
+
+    def solve_dynamic_steady_state(self):
+        eigvals, eigvecs, reduced_dofs = self.solve_dynamic()
+
+        if len(self.dynamic_nodal_forces) == 0:
+            raise ValueError("Dynamic - steady state requires at least one DynamicNodalForce entry.")
+
+        omega_values = {float(item.Omega) for item in self.dynamic_nodal_forces}
+        if len(omega_values) != 1:
+            raise ValueError("Dynamic - steady state requires one common base Omega for all DynamicNodalForce entries.")
+
+        omega_base = omega_values.pop()
+        reduced_dof_set = set(reduced_dofs)
+        invalid_dofs = sorted({item.dof_id for item in self.dynamic_nodal_forces if item.dof_id not in reduced_dof_set})
+        if invalid_dofs:
+            raise ValueError(
+                "DynamicNodalForce dof_id must be active in reduced stiffness matrix K_red. "
+                f"Invalid dof_id values: {invalid_dofs}; active reduced DOFs: {reduced_dofs}"
+            )
+
+        damping_lookup = {item.mode: float(item.zeta) for item in self.damping_ratio}
+        harmonic_forces = {}
+        for item in self.dynamic_nodal_forces:
+            multiplier = max(1, int(getattr(item, "multiplier", 1)))
+            f_h = harmonic_forces.setdefault(multiplier, np.zeros(len(reduced_dofs), dtype=complex))
+            idx = reduced_dofs.index(item.dof_id)
+            f_h[idx] += complex(item.Re_F, item.Im_F)
+
+        harmonic_modal_coordinates = {}
+        harmonic_responses = {}
+        total_response = np.zeros(len(reduced_dofs), dtype=complex)
+        total_force = np.zeros(len(reduced_dofs), dtype=complex)
+
+        for multiplier, f_h in sorted(harmonic_forces.items()):
+            omega_exc = multiplier * omega_base
+            q_h = np.zeros(len(eigvals), dtype=complex)
+
+            for mode_idx in range(len(eigvals)):
+                phi_i = eigvecs[:, mode_idx]
+                omega_i = np.sqrt(max(eigvals[mode_idx], 0.0))
+                zeta_i = damping_lookup.get(mode_idx + 1, 0.0)
+                f_norm = np.dot(phi_i.T, f_h)
+                denominator = (omega_i ** 2 - omega_exc ** 2) + 2j * zeta_i * omega_i * omega_exc
+                if abs(denominator) < 1e-12:
+                    raise ValueError(
+                        f"Steady-state denominator is zero for mode {mode_idx + 1} and multiplier {multiplier}. "
+                        "Adjust damping ratio or excitation frequency."
+                    )
+                q_h[mode_idx] = f_norm / denominator
+
+            u_h = eigvecs @ q_h
+            harmonic_modal_coordinates[multiplier] = q_h
+            harmonic_responses[multiplier] = u_h
+            total_response += u_h
+            total_force += f_h
+
+        self.dynamic_force_vector = total_force
+        self.dynamic_modal_coordinates = np.sum(np.array(list(harmonic_modal_coordinates.values())), axis=0) if harmonic_modal_coordinates else np.zeros(len(eigvals), dtype=complex)
+        self.dynamic_response = total_response
+        self.dynamic_harmonic_forces = harmonic_forces
+        self.dynamic_harmonic_modal_coordinates = harmonic_modal_coordinates
+        self.dynamic_harmonic_responses = harmonic_responses
+        self.dynamic_excitation_frequency = omega_base
+
+        return total_response, total_force, reduced_dofs
 
 
     def _validate_stability_qx(self):
@@ -944,6 +1097,33 @@ class Model:
 
         return U_mode
 
+    def _dynamic_response_full_vector(self, response=None):
+        if response is None:
+            response = self.dynamic_response
+        response = np.asarray(response, dtype=complex)
+        if response.size == 0:
+            raise ValueError("No dynamic steady-state response available.")
+
+        max_dof = max(
+            max(dn.ux, dn.uy, dn.rz)
+            for dn in self.dof_nodes.values()
+        )
+        U_full = np.zeros(max_dof, dtype=complex)
+
+        if self._dynamic_back_substitution.size:
+            slave_response = self._dynamic_back_substitution @ response
+            slave_dofs = [
+                dof for dof in self.dynamic_active_dofs
+                if dof not in self.dynamic_dofs
+            ]
+            for i, dof in enumerate(slave_dofs):
+                U_full[dof - 1] = slave_response[i]
+
+        for i, dof in enumerate(self.dynamic_dofs):
+            U_full[dof - 1] = response[i]
+
+        return U_full
+
     def format_dynamic_results(self):
         if len(self.eigenvalues) == 0:
             return "No dynamic results available."
@@ -955,6 +1135,24 @@ class Model:
             lines.append(f"lambda_{i} = {lam:.6e}")
             mode = self.eigenvectors[:, i - 1]
             lines.append(f"U_{i} = {mode}")
+
+        if self.dynamic_excitation_frequency is not None:
+            lines.append("")
+            lines.append("DYNAMIC STEADY-STATE SOLUTION:")
+            lines.append(f"Base Omega = {self.dynamic_excitation_frequency:.6e}")
+            if self.dynamic_harmonic_forces:
+                for multiplier in sorted(self.dynamic_harmonic_forces):
+                    omega_h = multiplier * self.dynamic_excitation_frequency
+                    lines.append(f"harmonic {multiplier} * Omega = {omega_h:.6e}")
+                    lines.append(f"f[{multiplier}] = {self.dynamic_harmonic_forces[multiplier]}")
+                    for i, q_i in enumerate(self.dynamic_harmonic_modal_coordinates.get(multiplier, []), start=1):
+                        lines.append(f"q[{multiplier}]_{i} = {q_i}")
+                    lines.append(f"u[{multiplier}] = {self.dynamic_harmonic_responses.get(multiplier)}")
+            else:
+                lines.append(f"f = {self.dynamic_force_vector}")
+                for i, q_i in enumerate(self.dynamic_modal_coordinates, start=1):
+                    lines.append(f"q_{i} = {q_i}")
+                lines.append(f"u = {self.dynamic_response}")
 
         return "\n".join(lines)
 
@@ -1419,6 +1617,132 @@ class Model:
             self.plot_mode_shape(i, show=False)
         if show:
             self.show_all_plots()
+
+    def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
+        if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
+            raise ValueError("Dynamic steady-state solution must be solved before animation.")
+        if self.dynamic_excitation_frequency <= 0:
+            raise ValueError("Omega must be positive to animate one period.")
+
+        harmonic_full_vectors = {
+            multiplier: self._dynamic_response_full_vector(response)
+            for multiplier, response in self.dynamic_harmonic_responses.items()
+        }
+        if not harmonic_full_vectors:
+            harmonic_full_vectors = {1: self._dynamic_response_full_vector()}
+
+        if scale is None:
+            max_disp = max(np.max(np.abs(U_hat)) for U_hat in harmonic_full_vectors.values())
+            if max_disp == 0:
+                scale = 1.0
+            else:
+                size = max(
+                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
+                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
+                )
+                scale = 0.1 * size / max_disp
+
+        fig, ax = plt.subplots()
+
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], "k--", linewidth=1)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+
+        deformed_lines = []
+        for _ in self.elements.values():
+            line, = ax.plot([], [], "r", linewidth=2)
+            deformed_lines.append(line)
+
+        ax.axis("equal")
+        ax.set_axis_off()
+
+        omega = float(self.dynamic_excitation_frequency)
+        period = 2 * np.pi / omega
+        time_values = np.linspace(0.0, period, max(int(frames_per_period), 2), endpoint=False)
+
+        def update(frame_index):
+            t = time_values[frame_index]
+            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_full_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+
+            for line, elem in zip(deformed_lines, self.elements.values()):
+                i, j = elem.i, elem.j
+                L, alpha = self.element_geometry(elem.id)
+                c = np.cos(alpha)
+                s = np.sin(alpha)
+
+                di = self.dof_nodes[i]
+                dj = self.dof_nodes[j]
+                ni = self.nodes[di.node_id]
+                xi, yi = ni.x, ni.y
+
+                u_global = np.array([
+                    U_t[di.ux - 1],
+                    U_t[di.uy - 1],
+                    U_t[di.rz - 1],
+                    U_t[dj.ux - 1],
+                    U_t[dj.uy - 1],
+                    U_t[dj.rz - 1],
+                ])
+
+                T = np.array([
+                    [c, s, 0, 0, 0, 0],
+                    [-s, c, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, c, s, 0],
+                    [0, 0, 0, -s, c, 0],
+                    [0, 0, 0, 0, 0, 1],
+                ])
+                u_local = T @ u_global
+
+                v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
+                u1, u2 = u_local[0], u_local[3]
+
+                xs = []
+                ys = []
+                for xi_loc in np.linspace(0, 1, n_points):
+                    N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
+                    N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
+                    N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
+                    N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
+
+                    v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
+                    x_local = xi_loc * L
+                    u_axial = (1 - xi_loc) * u1 + xi_loc * u2
+
+                    xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
+                    yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
+                    xs.append(xg)
+                    ys.append(yg)
+
+                line.set_data(xs, ys)
+
+            ax.set_title(
+                fr"Harmonic response: $u(t)=\Re\left(\sum_k \hat{{u}}_k e^{{ik\Omega t}}\right)$, "
+                fr"$t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
+            )
+            return deformed_lines
+
+        interval_ms = 1000 * period / len(time_values)
+        self._last_animation = FuncAnimation(
+            fig,
+            update,
+            frames=len(time_values),
+            interval=interval_ms,
+            blit=False,
+            repeat=True,
+        )
+
+        update(0)
+        if show:
+            plt.show()
 
     #print reakce
     def format_reactions(self):
@@ -1953,6 +2277,11 @@ def main():
 
     elif model.problem_type == "Dynamic - Natural frequencies and modes":
         model.solve_dynamic()
+        model.print_dynamic_results()
+        model.plot_all_mode_shapes(show=True)
+
+    elif model.problem_type == "Dynamic - steady state":
+        model.solve_dynamic_steady_state()
         model.print_dynamic_results()
         model.plot_all_mode_shapes(show=True)
 
