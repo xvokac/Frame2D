@@ -30,7 +30,7 @@
   "sections": [
     {
       "id": 1,
-      "E": 3600.0,
+      "E": 1.0,
       "A": 1.0,
       "I": 1.0
     }
@@ -59,7 +59,7 @@
   ],
   "nodal_loads": [],
   "element_loads": [],
-  "problem_type": "Dynamic - steady state",
+  "problem_type": "Dynamic - Natural frequencies and modes",
   "number_of_eigenvectors": 3,
   "mass": [
     {
@@ -67,19 +67,6 @@
       "mass": 1.0
     }
   ],
-  "dynamic_nodal_forces": [
-    {
-      "dof_id": 5,
-      "Re_F": 10.0,
-      "Im_F": 0.0,
-      "Omega": 51.4,
-      "multiplier": 1
-    }
-  ],
-  "damping_ratio": [
-    {
-      "mode": 1,
-      "zeta": 0.05
-    }
-  ]
+  "dynamic_nodal_forces": [],
+  "damping_ratio": []
 }
