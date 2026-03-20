@@ -76,6 +76,7 @@ class DynamicNodalForce:
     Re_F: float
     Im_F: float
     Omega: float
+    multiplier: int = 1
 
 
 @dataclass
@@ -240,6 +241,9 @@ class Model:
         self.dynamic_force_vector = np.array([], dtype=complex)
         self.dynamic_modal_coordinates = np.array([], dtype=complex)
         self.dynamic_response = np.array([], dtype=complex)
+        self.dynamic_harmonic_forces = {}
+        self.dynamic_harmonic_modal_coordinates = {}
+        self.dynamic_harmonic_responses = {}
         self.dynamic_excitation_frequency = None
         self._last_animation = None
 
@@ -302,6 +306,7 @@ class Model:
                         Re_F=float(item.get("Re_F", 0.0)),
                         Im_F=float(item.get("Im_F", 0.0)),
                         Omega=float(item.get("Omega", 0.0)),
+                        multiplier=max(1, int(item.get("multiplier", item.get("Multiplier", 1)))),
                     )
                 )
             except (TypeError, ValueError):
@@ -441,6 +446,7 @@ class Model:
                 Re_F=float(item.Re_F),
                 Im_F=float(item.Im_F),
                 Omega=float(item.Omega),
+                multiplier=max(1, int(getattr(item, "multiplier", 1))),
             )
             for item in self.dynamic_nodal_forces
             if item.dof_id in dof_id_map
@@ -496,8 +502,9 @@ class Model:
                     "Re_F": item.Re_F,
                     "Im_F": item.Im_F,
                     "Omega": item.Omega,
+                    "multiplier": getattr(item, "multiplier", 1),
                 }
-                for item in sorted(self.dynamic_nodal_forces, key=lambda val: (val.dof_id, val.Omega))
+                for item in sorted(self.dynamic_nodal_forces, key=lambda val: (val.dof_id, val.Omega, getattr(val, "multiplier", 1)))
             ],
             "damping_ratio": [
                 {"mode": item.mode, "zeta": item.zeta}
@@ -779,6 +786,9 @@ class Model:
         self.dynamic_force_vector = np.zeros(len(reduced_dofs), dtype=complex)
         self.dynamic_modal_coordinates = np.zeros(n, dtype=complex)
         self.dynamic_response = np.zeros(len(reduced_dofs), dtype=complex)
+        self.dynamic_harmonic_forces = {}
+        self.dynamic_harmonic_modal_coordinates = {}
+        self.dynamic_harmonic_responses = {}
         self.dynamic_excitation_frequency = None
 
         return self.eigenvalues, self.eigenvectors, reduced_dofs
@@ -791,9 +801,9 @@ class Model:
 
         omega_values = {float(item.Omega) for item in self.dynamic_nodal_forces}
         if len(omega_values) != 1:
-            raise ValueError("Dynamic - steady state currently requires the same Omega for all DynamicNodalForce entries.")
+            raise ValueError("Dynamic - steady state requires one common base Omega for all DynamicNodalForce entries.")
 
-        omega_exc = omega_values.pop()
+        omega_base = omega_values.pop()
         reduced_dof_set = set(reduced_dofs)
         invalid_dofs = sorted({item.dof_id for item in self.dynamic_nodal_forces if item.dof_id not in reduced_dof_set})
         if invalid_dofs:
@@ -802,35 +812,51 @@ class Model:
                 f"Invalid dof_id values: {invalid_dofs}; active reduced DOFs: {reduced_dofs}"
             )
 
-        f = np.zeros(len(reduced_dofs), dtype=complex)
-        for item in self.dynamic_nodal_forces:
-            idx = reduced_dofs.index(item.dof_id)
-            f[idx] += complex(item.Re_F, item.Im_F)
-
         damping_lookup = {item.mode: float(item.zeta) for item in self.damping_ratio}
-        q = np.zeros(len(eigvals), dtype=complex)
+        harmonic_forces = {}
+        for item in self.dynamic_nodal_forces:
+            multiplier = max(1, int(getattr(item, "multiplier", 1)))
+            f_h = harmonic_forces.setdefault(multiplier, np.zeros(len(reduced_dofs), dtype=complex))
+            idx = reduced_dofs.index(item.dof_id)
+            f_h[idx] += complex(item.Re_F, item.Im_F)
 
-        for mode_idx in range(len(eigvals)):
-            phi_i = eigvecs[:, mode_idx]
-            omega_i = np.sqrt(max(eigvals[mode_idx], 0.0))
-            zeta_i = damping_lookup.get(mode_idx + 1, 0.0)
-            f_norm = np.dot(phi_i.T, f)
-            denominator = (omega_i ** 2 - omega_exc ** 2) + 2j * zeta_i * omega_i * omega_exc
-            if abs(denominator) < 1e-12:
-                raise ValueError(
-                    f"Steady-state denominator is zero for mode {mode_idx + 1}. "
-                    "Adjust damping ratio or excitation frequency."
-                )
-            q[mode_idx] = f_norm / denominator
+        harmonic_modal_coordinates = {}
+        harmonic_responses = {}
+        total_response = np.zeros(len(reduced_dofs), dtype=complex)
+        total_force = np.zeros(len(reduced_dofs), dtype=complex)
 
-        u_red = eigvecs @ q
+        for multiplier, f_h in sorted(harmonic_forces.items()):
+            omega_exc = multiplier * omega_base
+            q_h = np.zeros(len(eigvals), dtype=complex)
 
-        self.dynamic_force_vector = f
-        self.dynamic_modal_coordinates = q
-        self.dynamic_response = u_red
-        self.dynamic_excitation_frequency = omega_exc
+            for mode_idx in range(len(eigvals)):
+                phi_i = eigvecs[:, mode_idx]
+                omega_i = np.sqrt(max(eigvals[mode_idx], 0.0))
+                zeta_i = damping_lookup.get(mode_idx + 1, 0.0)
+                f_norm = np.dot(phi_i.T, f_h)
+                denominator = (omega_i ** 2 - omega_exc ** 2) + 2j * zeta_i * omega_i * omega_exc
+                if abs(denominator) < 1e-12:
+                    raise ValueError(
+                        f"Steady-state denominator is zero for mode {mode_idx + 1} and multiplier {multiplier}. "
+                        "Adjust damping ratio or excitation frequency."
+                    )
+                q_h[mode_idx] = f_norm / denominator
 
-        return u_red, f, reduced_dofs
+            u_h = eigvecs @ q_h
+            harmonic_modal_coordinates[multiplier] = q_h
+            harmonic_responses[multiplier] = u_h
+            total_response += u_h
+            total_force += f_h
+
+        self.dynamic_force_vector = total_force
+        self.dynamic_modal_coordinates = np.sum(np.array(list(harmonic_modal_coordinates.values())), axis=0) if harmonic_modal_coordinates else np.zeros(len(eigvals), dtype=complex)
+        self.dynamic_response = total_response
+        self.dynamic_harmonic_forces = harmonic_forces
+        self.dynamic_harmonic_modal_coordinates = harmonic_modal_coordinates
+        self.dynamic_harmonic_responses = harmonic_responses
+        self.dynamic_excitation_frequency = omega_base
+
+        return total_response, total_force, reduced_dofs
 
 
     def _validate_stability_qx(self):
@@ -1071,8 +1097,11 @@ class Model:
 
         return U_mode
 
-    def _dynamic_response_full_vector(self):
-        if self.dynamic_response.size == 0:
+    def _dynamic_response_full_vector(self, response=None):
+        if response is None:
+            response = self.dynamic_response
+        response = np.asarray(response, dtype=complex)
+        if response.size == 0:
             raise ValueError("No dynamic steady-state response available.")
 
         max_dof = max(
@@ -1082,7 +1111,7 @@ class Model:
         U_full = np.zeros(max_dof, dtype=complex)
 
         if self._dynamic_back_substitution.size:
-            slave_response = self._dynamic_back_substitution @ self.dynamic_response
+            slave_response = self._dynamic_back_substitution @ response
             slave_dofs = [
                 dof for dof in self.dynamic_active_dofs
                 if dof not in self.dynamic_dofs
@@ -1091,7 +1120,7 @@ class Model:
                 U_full[dof - 1] = slave_response[i]
 
         for i, dof in enumerate(self.dynamic_dofs):
-            U_full[dof - 1] = self.dynamic_response[i]
+            U_full[dof - 1] = response[i]
 
         return U_full
 
@@ -1110,11 +1139,20 @@ class Model:
         if self.dynamic_excitation_frequency is not None:
             lines.append("")
             lines.append("DYNAMIC STEADY-STATE SOLUTION:")
-            lines.append(f"Omega = {self.dynamic_excitation_frequency:.6e}")
-            lines.append(f"f = {self.dynamic_force_vector}")
-            for i, q_i in enumerate(self.dynamic_modal_coordinates, start=1):
-                lines.append(f"q_{i} = {q_i}")
-            lines.append(f"u = {self.dynamic_response}")
+            lines.append(f"Base Omega = {self.dynamic_excitation_frequency:.6e}")
+            if self.dynamic_harmonic_forces:
+                for multiplier in sorted(self.dynamic_harmonic_forces):
+                    omega_h = multiplier * self.dynamic_excitation_frequency
+                    lines.append(f"harmonic {multiplier} * Omega = {omega_h:.6e}")
+                    lines.append(f"f[{multiplier}] = {self.dynamic_harmonic_forces[multiplier]}")
+                    for i, q_i in enumerate(self.dynamic_harmonic_modal_coordinates.get(multiplier, []), start=1):
+                        lines.append(f"q[{multiplier}]_{i} = {q_i}")
+                    lines.append(f"u[{multiplier}] = {self.dynamic_harmonic_responses.get(multiplier)}")
+            else:
+                lines.append(f"f = {self.dynamic_force_vector}")
+                for i, q_i in enumerate(self.dynamic_modal_coordinates, start=1):
+                    lines.append(f"q_{i} = {q_i}")
+                lines.append(f"u = {self.dynamic_response}")
 
         return "\n".join(lines)
 
@@ -1586,10 +1624,15 @@ class Model:
         if self.dynamic_excitation_frequency <= 0:
             raise ValueError("Omega must be positive to animate one period.")
 
-        U_hat = self._dynamic_response_full_vector()
+        harmonic_full_vectors = {
+            multiplier: self._dynamic_response_full_vector(response)
+            for multiplier, response in self.dynamic_harmonic_responses.items()
+        }
+        if not harmonic_full_vectors:
+            harmonic_full_vectors = {1: self._dynamic_response_full_vector()}
 
         if scale is None:
-            max_disp = np.max(np.abs(U_hat))
+            max_disp = max(np.max(np.abs(U_hat)) for U_hat in harmonic_full_vectors.values())
             if max_disp == 0:
                 scale = 1.0
             else:
@@ -1625,7 +1668,9 @@ class Model:
 
         def update(frame_index):
             t = time_values[frame_index]
-            U_t = np.real(U_hat * np.exp(1j * omega * t))
+            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_full_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
 
             for line, elem in zip(deformed_lines, self.elements.values()):
                 i, j = elem.i, elem.j
@@ -1680,7 +1725,7 @@ class Model:
                 line.set_data(xs, ys)
 
             ax.set_title(
-                fr"Harmonic response: $u(t)=\Re(\hat{{u}}e^{{i\Omega t}})$, "
+                fr"Harmonic response: $u(t)=\Re\left(\sum_k \hat{{u}}_k e^{{ik\Omega t}}\right)$, "
                 fr"$t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
             )
             return deformed_lines

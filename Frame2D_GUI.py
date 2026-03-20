@@ -972,8 +972,8 @@ class Frame2DGui:
         create_special_table("mass", "Mass table (lumped masses in DOF for dynamic analysis)", ["dof_id", "mass"])
         create_special_table(
             "dynamic nodal forces",
-            "Dynamic nodal forces (superposition of multiple harmonic loads)",
-            ["dof_id", "Re_F", "Im_F", "Omega"],
+            "Dynamic nodal forces (common base Omega with per-row harmonic multiplier)",
+            ["dof_id", "Re_F", "Im_F", "Omega", "multiplier"],
         )
         create_special_table(
             "damping ratio",
@@ -1247,11 +1247,12 @@ class Frame2DGui:
                 re_f = parse_float(r, "Re_F", 0.0)
                 im_f = parse_float(r, "Im_F", 0.0)
                 omega = parse_float(r, "Omega", 0.0)
+                multiplier = max(1, parse_int(r, "multiplier", 1))
             except (TypeError, ValueError):
                 continue
             if dof_id not in valid_dof_ids:
                 continue
-            dynamic_nodal_forces.append({"dof_id": dof_id, "Re_F": re_f, "Im_F": im_f, "Omega": omega})
+            dynamic_nodal_forces.append({"dof_id": dof_id, "Re_F": re_f, "Im_F": im_f, "Omega": omega, "multiplier": multiplier})
 
         damping_ratio = []
         for r in data_tables.get("damping ratio", []):
