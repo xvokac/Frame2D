@@ -1743,6 +1743,161 @@ class Model:
         update(0)
         if show:
             plt.show()
+    def _dynamic_time_history_vectors(self, frames_per_period):
+        if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
+            raise ValueError("Dynamic steady-state solution must be solved before animation.")
+        if self.dynamic_excitation_frequency <= 0:
+            raise ValueError("Omega must be positive to animate one period.")
+
+        harmonic_full_vectors = {
+            multiplier: self._dynamic_response_full_vector(response)
+            for multiplier, response in self.dynamic_harmonic_responses.items()
+        }
+        if not harmonic_full_vectors:
+            harmonic_full_vectors = {1: self._dynamic_response_full_vector()}
+
+        omega = float(self.dynamic_excitation_frequency)
+        period = 2 * np.pi / omega
+        time_values = np.linspace(0.0, period, max(int(frames_per_period), 2), endpoint=False)
+        return harmonic_full_vectors, omega, period, time_values
+
+    def _internal_force_diagram_data(self, elem, kind, scale, displacement_vector, npts=40):
+        di = self.dof_nodes[elem.i]
+        dj = self.dof_nodes[elem.j]
+
+        ni = self.nodes[di.node_id]
+        nj = self.nodes[dj.node_id]
+
+        xi, yi = ni.x, ni.y
+        xj, yj = nj.x, nj.y
+        dx = xj - xi
+        dy = yj - yi
+        L = np.hypot(dx, dy)
+        cx = dx / L
+        cy = dy / L
+        nx = -cy
+        ny = cx
+        if kind == "M":
+            nx = -nx
+            ny = -ny
+
+        forces = self.element_end_forces(elem, displacement_vector=displacement_vector)
+        qz = self.get_element_qz(elem)
+        xs = np.linspace(0, L, npts)
+
+        X = []
+        Y = []
+        Xbase = []
+        Ybase = []
+        values = []
+        for x in xs:
+            N, V, M = element_diagram(x, L, forces, qz)
+            if kind == "N":
+                val = np.real_if_close(N)
+            elif kind == "V":
+                val = np.real_if_close(V)
+            else:
+                val = np.real_if_close(M)
+            val = float(np.real(val))
+
+            xb = xi + cx * x
+            yb = yi + cy * x
+            xd = xb + nx * val * scale
+            yd = yb + ny * val * scale
+            X.append(xd)
+            Y.append(yd)
+            Xbase.append(xb)
+            Ybase.append(yb)
+            values.append(val)
+
+        return Xbase, Ybase, X, Y, values
+
+    def plot_dynamic_internal_force_animation(self, kind="M", scale=None, frames_per_period=60, npts=40, show=False):
+        kind = kind.upper()
+        if kind not in ("N", "V", "M"):
+            raise ValueError("kind must be one of 'N', 'V', 'M'")
+
+        harmonic_full_vectors, omega, period, time_values = self._dynamic_time_history_vectors(frames_per_period)
+
+        if scale is None:
+            max_val = 0.0
+            for frame_index in range(len(time_values)):
+                t = time_values[frame_index]
+                U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+                for multiplier, U_hat in harmonic_full_vectors.items():
+                    U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+                for elem in self.elements.values():
+                    forces = self.element_end_forces(elem, displacement_vector=U_t)
+                    if kind == "N":
+                        values = [forces[0], forces[3]]
+                    elif kind == "V":
+                        values = [forces[1], forces[4]]
+                    else:
+                        values = [forces[2], forces[5]]
+                    max_val = max(max_val, max(abs(float(np.real(v))) for v in values))
+            if max_val == 0:
+                scale = 1.0
+            else:
+                total_length = sum(self.element_geometry(elem.id)[0] for elem in self.elements.values())
+                L_ref = total_length / len(self.elements)
+                scale = 0.2 * L_ref / max_val
+
+        fig, ax = plt.subplots()
+
+        diagram_lines = []
+        fill_patches = []
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], "k-", lw=1)
+
+            line, = ax.plot([], [], "r", linewidth=2)
+            patch = patches.Polygon([[ni.x, ni.y]], closed=True, color="r", alpha=0.25)
+            ax.add_patch(patch)
+            diagram_lines.append(line)
+            fill_patches.append(patch)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+        ax.axis("equal")
+        ax.set_axis_off()
+
+        def update(frame_index):
+            t = time_values[frame_index]
+            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_full_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+
+            for line, patch, elem in zip(diagram_lines, fill_patches, self.elements.values()):
+                Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, U_t, npts=npts)
+                line.set_data(X, Y)
+                polygon_points = np.column_stack([
+                    np.array(X + list(reversed(Xbase))),
+                    np.array(Y + list(reversed(Ybase)))
+                ])
+                patch.set_xy(polygon_points)
+
+            ax.set_title(
+                fr"Dynamic {kind} diagram: $t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
+            )
+            return diagram_lines + fill_patches
+
+        interval_ms = 1000 * period / len(time_values)
+        self._last_animation = FuncAnimation(
+            fig,
+            update,
+            frames=len(time_values),
+            interval=interval_ms,
+            blit=False,
+            repeat=True,
+        )
+
+        update(0)
+        if show:
+            plt.show()
+
 
     #print reakce
     def format_reactions(self):
@@ -1779,15 +1934,28 @@ class Model:
 
                 
     #koncové síly na prvku
-    def element_end_forces(self, elem):
+    def element_end_forces(self, elem, displacement_vector=None):
         sec = self.sections[elem.section_id]
         L, alpha = self.element_geometry(elem.id)
         # lokální tuhost — VOLÁ SE FUNKCE MIMO TŘÍDU
-        k_local = local_stiffness(sec.E, sec.A, sec.I, L)        
+        k_local = local_stiffness(sec.E, sec.A, sec.I, L)
         # transformace
         T = transformation_matrix(alpha)
         # globální posuny prvku
-        u_global = self.get_element_displacements(elem)
+        if displacement_vector is None:
+            u_global = self.get_element_displacements(elem)
+        else:
+            displacement_vector = np.asarray(displacement_vector)
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            u_global = np.array([
+                displacement_vector[di.ux - 1],
+                displacement_vector[di.uy - 1],
+                displacement_vector[di.rz - 1],
+                displacement_vector[dj.ux - 1],
+                displacement_vector[dj.uy - 1],
+                displacement_vector[dj.rz - 1],
+            ], dtype=displacement_vector.dtype)
         # převod do lokálního systému
         u_local = T @ u_global
         # koncové síly v lokálním systému
@@ -2283,7 +2451,11 @@ def main():
     elif model.problem_type == "Dynamic - steady state":
         model.solve_dynamic_steady_state()
         model.print_dynamic_results()
-        model.plot_all_mode_shapes(show=True)
+        model.plot_dynamic_response_animation(show=False)
+        model.plot_dynamic_internal_force_animation('M', show=False)
+        model.plot_dynamic_internal_force_animation('V', show=False)
+        model.plot_dynamic_internal_force_animation('N', show=False)
+        model.show_all_plots()
 
     elif model.problem_type == "Stability":
         model.solve_stability()
