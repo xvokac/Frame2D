@@ -1623,6 +1623,22 @@ class Model:
         self._last_animation = None
         self._animations = []
 
+    def _create_animation_title(self, fig, initial_text=""):
+        fig.subplots_adjust(top=0.84)
+        return fig.text(
+            0.5,
+            0.965,
+            initial_text,
+            ha="center",
+            va="top",
+            bbox={
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.55,
+                "pad": 4,
+            },
+        )
+
     def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
         if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
             raise ValueError("Dynamic steady-state solution must be solved before animation.")
@@ -1648,6 +1664,7 @@ class Model:
                 scale = 0.1 * size / max_disp
 
         fig, ax = plt.subplots()
+        title_artist = self._create_animation_title(fig)
 
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
@@ -1729,7 +1746,7 @@ class Model:
 
                 line.set_data(xs, ys)
 
-            ax.set_title(
+            title_artist.set_text(
                 fr"Harmonic response: $u(t)=\Re\left(\sum_k \hat{{u}}_k e^{{ik\Omega t}}\right)$, "
                 fr"$t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
             )
@@ -1849,6 +1866,7 @@ class Model:
                 scale = 0.2 * L_ref / max_val
 
         fig, ax = plt.subplots()
+        title_artist = self._create_animation_title(fig)
 
         diagram_lines = []
         fill_patches = []
@@ -1885,7 +1903,7 @@ class Model:
                 ])
                 patch.set_xy(polygon_points)
 
-            ax.set_title(
+            title_artist.set_text(
                 fr"Dynamic {kind} diagram: $t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
             )
             return diagram_lines + fill_patches
