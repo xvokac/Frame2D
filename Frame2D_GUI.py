@@ -816,11 +816,7 @@ class Frame2DGui:
                 model.solve_dynamic_steady_state()
                 self.show_reactions(model.format_dynamic_results())
                 model.clear_animation_references()
-                model.plot_dynamic_response_animation(show=False)
-                model.plot_dynamic_internal_force_animation("M", show=False)
-                model.plot_dynamic_internal_force_animation("V", show=False)
-                model.plot_dynamic_internal_force_animation("N", show=False)
-                model.show_all_plots()
+                model.plot_dynamic_results_dashboard(show=True)
             elif model.problem_type == "Stability":
                 model.solve_stability()
                 self.show_reactions(model.format_stability_results())
