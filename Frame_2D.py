@@ -246,6 +246,7 @@ class Model:
         self.dynamic_harmonic_responses = {}
         self.dynamic_excitation_frequency = None
         self._last_animation = None
+        self._animations = []
 
     @classmethod
     def from_json(cls, path):
@@ -1618,6 +1619,10 @@ class Model:
         if show:
             self.show_all_plots()
 
+    def clear_animation_references(self):
+        self._last_animation = None
+        self._animations = []
+
     def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
         if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
             raise ValueError("Dynamic steady-state solution must be solved before animation.")
@@ -1739,6 +1744,7 @@ class Model:
             blit=False,
             repeat=True,
         )
+        self._animations.append(self._last_animation)
 
         update(0)
         if show:
@@ -1893,6 +1899,7 @@ class Model:
             blit=False,
             repeat=True,
         )
+        self._animations.append(self._last_animation)
 
         update(0)
         if show:
@@ -2451,6 +2458,7 @@ def main():
     elif model.problem_type == "Dynamic - steady state":
         model.solve_dynamic_steady_state()
         model.print_dynamic_results()
+        model.clear_animation_references()
         model.plot_dynamic_response_animation(show=False)
         model.plot_dynamic_internal_force_animation('M', show=False)
         model.plot_dynamic_internal_force_animation('V', show=False)
