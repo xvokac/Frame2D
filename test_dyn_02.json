@@ -176,5 +176,36 @@
       "dof_id": 19,
       "mass": 1000.0
     }
+  ],
+  "dynamic_nodal_forces": [
+    {
+      "dof_id": 14,
+      "Re_F": 1.0,
+      "Im_F": 0.0,
+      "Omega": 6.0,
+      "multiplier": 1
+    }
+  ],
+  "damping_ratio": [
+    {
+      "mode": 1,
+      "zeta": 0.05
+    },
+    {
+      "mode": 2,
+      "zeta": 0.05
+    },
+    {
+      "mode": 3,
+      "zeta": 0.05
+    },
+    {
+      "mode": 4,
+      "zeta": 0.05
+    },
+    {
+      "mode": 5,
+      "zeta": 0.05
+    }
   ]
 }
