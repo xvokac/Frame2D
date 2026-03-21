@@ -1730,9 +1730,7 @@ class Model:
 
         def update(frame_index):
             t = time_values[frame_index]
-            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
-            for multiplier, U_hat in harmonic_full_vectors.items():
-                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
 
             for line, elem in zip(deformed_lines, self.elements.values()):
                 i, j = elem.i, elem.j
@@ -1794,11 +1792,9 @@ class Model:
 
         bounds_x = []
         bounds_y = []
-        for frame_index in range(len(time_values)):
-            t = time_values[frame_index]
-            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
-            for multiplier, U_hat in harmonic_full_vectors.items():
-                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+        sampled_time_values = self._sample_time_values(time_values)
+        for t in sampled_time_values:
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
             for elem in self.elements.values():
                 i, j = elem.i, elem.j
                 L, alpha = self.element_geometry(elem.id)
@@ -1870,6 +1866,18 @@ class Model:
         time_values = np.linspace(0.0, period, max(int(frames_per_period), 2), endpoint=False)
         return harmonic_full_vectors, omega, period, time_values
 
+    def _compose_dynamic_frame_vector(self, harmonic_full_vectors, omega, t):
+        U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+        for multiplier, U_hat in harmonic_full_vectors.items():
+            U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+        return U_t
+
+    def _sample_time_values(self, time_values, max_samples=12):
+        if len(time_values) <= max_samples:
+            return time_values
+        sample_indices = np.linspace(0, len(time_values) - 1, max_samples, dtype=int)
+        return time_values[sample_indices]
+
     def _internal_force_diagram_data(self, elem, kind, scale, displacement_vector, npts=40):
         di = self.dof_nodes[elem.i]
         dj = self.dof_nodes[elem.j]
@@ -1930,11 +1938,9 @@ class Model:
 
         if scale is None:
             max_val = 0.0
-            for frame_index in range(len(time_values)):
-                t = time_values[frame_index]
-                U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
-                for multiplier, U_hat in harmonic_full_vectors.items():
-                    U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            sampled_time_values = self._sample_time_values(time_values)
+            for t in sampled_time_values:
+                U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
                 for elem in self.elements.values():
                     forces = self.element_end_forces(elem, displacement_vector=U_t)
                     if kind == "N":
@@ -1976,9 +1982,7 @@ class Model:
 
         def update(frame_index):
             t = time_values[frame_index]
-            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
-            for multiplier, U_hat in harmonic_full_vectors.items():
-                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
 
             for line, patch, elem in zip(diagram_lines, fill_patches, self.elements.values()):
                 Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, U_t, npts=npts)
@@ -1996,11 +2000,9 @@ class Model:
 
         bounds_x = []
         bounds_y = []
-        for frame_index in range(len(time_values)):
-            t = time_values[frame_index]
-            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
-            for multiplier, U_hat in harmonic_full_vectors.items():
-                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+        sampled_time_values = self._sample_time_values(time_values)
+        for t in sampled_time_values:
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
             for elem in self.elements.values():
                 Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, U_t, npts=npts)
                 bounds_x.extend(Xbase)
