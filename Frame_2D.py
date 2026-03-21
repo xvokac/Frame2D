@@ -992,6 +992,10 @@ class Model:
                 scale = 0.2 * size / max_disp
 
         fig, ax = plt.subplots()
+        plotted_x = []
+        plotted_y = []
+        plotted_x = []
+        plotted_y = []
 
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
@@ -1374,6 +1378,8 @@ class Model:
                 scale = 0.1 * size / max_disp
 
         fig, ax = plt.subplots()
+        plotted_x = []
+        plotted_y = []
 
         # původní konstrukce
         for elem in self.elements.values():
@@ -1476,6 +1482,8 @@ class Model:
                     vmax_pos = (xg, yg)
 
             ax.plot(xs, ys, 'r', linewidth=2)
+            plotted_x.extend(xs)
+            plotted_y.extend(ys)
             #Popisek maxima na prutu
             if vmax_pos:
                 ax.text(
@@ -1505,6 +1513,8 @@ class Model:
             # deformovaná poloha uzlu
             x_def = node.x + scale * ux
             y_def = node.y + scale * uy
+            plotted_x.append(x_def)
+            plotted_y.append(y_def)
 
             # popisek v uzlu
             ax.text(
@@ -1519,7 +1529,7 @@ class Model:
             )
 
         #další nastavení grafu    
-        ax.axis("equal")
+        self._apply_plot_bounds(ax, plotted_x, plotted_y)
         plt.title(r"Deformation and values $(u^2+v^2)^{1/2}$")
         if show:
             plt.show()
@@ -1539,6 +1549,8 @@ class Model:
                 scale = 0.1 * size / max_disp
 
         fig, ax = plt.subplots()
+        plotted_x = []
+        plotted_y = []
 
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
@@ -1602,11 +1614,13 @@ class Model:
                 ys.append(yg)
 
             ax.plot(xs, ys, 'r', linewidth=2)
+            plotted_x.extend(xs)
+            plotted_y.extend(ys)
 
         omega = np.sqrt(max(self.eigenvalues[mode_index], 0.0))
         freq_hz = omega / (2 * np.pi)
         ax.set_title(fr"Shape mode no. {mode_index + 1}: $f$ = {freq_hz:.3f} Hz")
-        ax.axis("equal")
+        self._apply_plot_bounds(ax, plotted_x, plotted_y)
         ax.set_axis_off()
 
         if show:
@@ -1638,6 +1652,32 @@ class Model:
                 "pad": 4,
             },
         )
+
+    def _structure_bounds(self):
+        xs = [node.x for node in self.nodes.values()]
+        ys = [node.y for node in self.nodes.values()]
+        if not xs or not ys:
+            return 0.0, 1.0, 0.0, 1.0
+        return min(xs), max(xs), min(ys), max(ys)
+
+    def _apply_plot_bounds(self, ax, x_values=None, y_values=None, margin_ratio=0.12, min_margin_ratio=0.04):
+        x_min, x_max, y_min, y_max = self._structure_bounds()
+
+        if x_values:
+            x_min = min(x_min, min(x_values))
+            x_max = max(x_max, max(x_values))
+        if y_values:
+            y_min = min(y_min, min(y_values))
+            y_max = max(y_max, max(y_values))
+
+        dx = max(x_max - x_min, 1e-9)
+        dy = max(y_max - y_min, 1e-9)
+        char_size = max(dx, dy, 1.0)
+        margin = max(margin_ratio * char_size, min_margin_ratio * char_size)
+
+        ax.set_xlim(x_min - margin, x_max + margin)
+        ax.set_ylim(y_min - margin, y_max + margin)
+        ax.set_aspect("equal", adjustable="box")
 
     def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
         if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
@@ -1752,6 +1792,52 @@ class Model:
             )
             return deformed_lines
 
+        bounds_x = []
+        bounds_y = []
+        for frame_index in range(len(time_values)):
+            t = time_values[frame_index]
+            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_full_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            for elem in self.elements.values():
+                i, j = elem.i, elem.j
+                L, alpha = self.element_geometry(elem.id)
+                c = np.cos(alpha)
+                s = np.sin(alpha)
+                di = self.dof_nodes[i]
+                dj = self.dof_nodes[j]
+                ni = self.nodes[di.node_id]
+                xi, yi = ni.x, ni.y
+                u_global = np.array([
+                    U_t[di.ux - 1],
+                    U_t[di.uy - 1],
+                    U_t[di.rz - 1],
+                    U_t[dj.ux - 1],
+                    U_t[dj.uy - 1],
+                    U_t[dj.rz - 1],
+                ])
+                T = np.array([
+                    [c, s, 0, 0, 0, 0],
+                    [-s, c, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, c, s, 0],
+                    [0, 0, 0, -s, c, 0],
+                    [0, 0, 0, 0, 0, 1],
+                ])
+                u_local = T @ u_global
+                v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
+                u1, u2 = u_local[0], u_local[3]
+                for xi_loc in np.linspace(0, 1, n_points):
+                    N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
+                    N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
+                    N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
+                    N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
+                    v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
+                    x_local = xi_loc * L
+                    u_axial = (1 - xi_loc) * u1 + xi_loc * u2
+                    bounds_x.append(xi + c * (x_local + scale * u_axial) - s * (scale * v))
+                    bounds_y.append(yi + s * (x_local + scale * u_axial) + c * (scale * v))
+        self._apply_plot_bounds(ax, bounds_x, bounds_y)
         interval_ms = 1000 * period / len(time_values)
         self._last_animation = FuncAnimation(
             fig,
@@ -1885,7 +1971,7 @@ class Model:
 
         self.plot_releases(ax)
         self.plot_supports(ax)
-        ax.axis("equal")
+        ax.set_aspect("equal", adjustable="box")
         ax.set_axis_off()
 
         def update(frame_index):
@@ -1908,6 +1994,20 @@ class Model:
             )
             return diagram_lines + fill_patches
 
+        bounds_x = []
+        bounds_y = []
+        for frame_index in range(len(time_values)):
+            t = time_values[frame_index]
+            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_full_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            for elem in self.elements.values():
+                Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, U_t, npts=npts)
+                bounds_x.extend(Xbase)
+                bounds_x.extend(X)
+                bounds_y.extend(Ybase)
+                bounds_y.extend(Y)
+        self._apply_plot_bounds(ax, bounds_x, bounds_y)
         interval_ms = 1000 * period / len(time_values)
         self._last_animation = FuncAnimation(
             fig,
@@ -2166,6 +2266,8 @@ class Model:
         if scale is None:
             scale = self.auto_scale(kind)
         plt.figure()
+        plotted_x = []
+        plotted_y = []
         # nejdřív konstrukce
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
@@ -2180,7 +2282,13 @@ class Model:
         # pak diagramy
         for elem in self.elements.values():
             self.plot_element_diagram(elem, kind, scale)
-        plt.axis("equal")
+            Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, self.U)
+            plotted_x.extend(Xbase)
+            plotted_x.extend(X)
+            plotted_y.extend(Ybase)
+            plotted_y.extend(Y)
+        ax = plt.gca()
+        self._apply_plot_bounds(ax, plotted_x, plotted_y)
         plt.title(kind)
         if show:
             plt.show()
