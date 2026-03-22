@@ -6,7 +6,7 @@ import argparse
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from matplotlib.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation, FFMpegWriter, HTMLWriter, PillowWriter
 from collections import defaultdict
 from scipy.linalg import eig
 
@@ -1637,6 +1637,59 @@ class Model:
         self._last_animation = None
         self._animations = []
 
+    def _infer_animation_writer(self, output_path, writer=None):
+        if writer is not None:
+            return writer
+
+        suffix = output_path.lower().rsplit(".", 1)
+        extension = suffix[1] if len(suffix) == 2 else ""
+        writer_by_extension = {
+            "gif": "pillow",
+            "mp4": "ffmpeg",
+            "m4v": "ffmpeg",
+            "mov": "ffmpeg",
+            "html": "html",
+            "htm": "html",
+        }
+        if extension not in writer_by_extension:
+            raise ValueError(
+                "Unsupported animation export format. Use .gif, .mp4, .mov, .m4v, or .html, "
+                "or pass writer='pillow'/'ffmpeg'/'html'."
+            )
+        return writer_by_extension[extension]
+
+    def _build_animation_writer(self, output_path, writer=None, fps=None):
+        selected_writer = self._infer_animation_writer(output_path, writer=writer)
+        if fps is None:
+            fps = 20
+        fps = max(float(fps), 1.0)
+
+        if selected_writer == "pillow":
+            return PillowWriter(fps=fps)
+        if selected_writer == "ffmpeg":
+            if not FFMpegWriter.isAvailable():
+                raise RuntimeError(
+                    "FFmpeg writer is not available in the current environment. "
+                    "Use GIF export (.gif) or install FFmpeg for MP4/MOV export."
+                )
+            return FFMpegWriter(fps=fps)
+        if selected_writer == "html":
+            return HTMLWriter(fps=fps)
+        raise ValueError(f"Unsupported animation writer '{selected_writer}'.")
+
+    def export_animation(self, output_path, animation=None, writer=None, fps=None, dpi=120):
+        if animation is None:
+            animation = self._last_animation
+        if animation is None:
+            raise ValueError("No animation is available for export. Create an animation first.")
+
+        animation_writer = self._build_animation_writer(output_path, writer=writer, fps=fps)
+        animation.save(output_path, writer=animation_writer, dpi=dpi)
+        return output_path
+
+    def export_last_animation(self, output_path, writer=None, fps=None, dpi=120):
+        return self.export_animation(output_path, animation=self._last_animation, writer=writer, fps=fps, dpi=dpi)
+
     def _create_animation_title(self, fig, initial_text=""):
         fig.subplots_adjust(top=0.84)
         return fig.text(
@@ -2752,6 +2805,34 @@ def main():
         "input_file",
         help="Cesta k vstupnímu JSON souboru (např. test_model.json).",
     )
+    parser.add_argument(
+        "--export-animation",
+        dest="export_animation_path",
+        help="Uloží vytvořenou animaci do souboru (.gif, .mp4, .mov, .m4v, .html).",
+    )
+    parser.add_argument(
+        "--animation-view",
+        choices=["dashboard", "response", "deformation", "N", "V", "M"],
+        default="dashboard",
+        help="Typ animace pro export v režimu 'Dynamic - steady state'.",
+    )
+    parser.add_argument(
+        "--animation-writer",
+        choices=["pillow", "ffmpeg", "html"],
+        help="Vynutí writer pro export animace. Pokud není zadán, odvodí se z přípony souboru.",
+    )
+    parser.add_argument(
+        "--animation-fps",
+        type=float,
+        default=20.0,
+        help="Snímková frekvence exportované animace.",
+    )
+    parser.add_argument(
+        "--animation-dpi",
+        type=int,
+        default=120,
+        help="DPI pro rasterový export animace.",
+    )
     args = parser.parse_args()
 
     model = Model.from_json(args.input_file)
@@ -2777,7 +2858,26 @@ def main():
         model.solve_dynamic_steady_state()
         model.print_dynamic_results()
         model.clear_animation_references()
-        model.plot_dynamic_results_dashboard(show=True)
+
+        animation_view = args.animation_view.upper() if args.animation_view in {"N", "V", "M"} else args.animation_view
+        show_animation = args.export_animation_path is None
+        if animation_view == "dashboard":
+            model.plot_dynamic_results_dashboard(show=show_animation)
+        elif animation_view in ("response", "deformation"):
+            model.plot_dynamic_response_animation(show=show_animation)
+        else:
+            model.plot_dynamic_internal_force_animation(kind=animation_view, show=show_animation)
+
+        if args.export_animation_path:
+            exported_path = model.export_last_animation(
+                args.export_animation_path,
+                writer=args.animation_writer,
+                fps=args.animation_fps,
+                dpi=args.animation_dpi,
+            )
+            print(f"Animation exported to: {exported_path}")
+        elif show_animation:
+            plt.show()
 
     elif model.problem_type == "Stability":
         model.solve_stability()
