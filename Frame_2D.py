@@ -2302,6 +2302,31 @@ class Model:
     def reaction_in_dof(self, dof_id):
         return self.compute_reactions().get(dof_id)
 
+    def _displacement_value_from_vector(self, displacement_vector, dof_id):
+        if dof_id == 0:
+            return 0.0
+
+        displacement_vector = np.asarray(displacement_vector)
+
+        if displacement_vector.ndim != 1:
+            raise ValueError("displacement_vector must be a 1D array-like sequence.")
+
+        vector_size = displacement_vector.shape[0]
+        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
+
+        if vector_size >= max_dof:
+            return displacement_vector[dof_id - 1]
+
+        idx = self.dof_map.get(dof_id)
+        if idx is None:
+            return 0.0
+        if idx >= vector_size:
+            raise IndexError(
+                f"Displacement vector with size {vector_size} does not contain active DOF {dof_id} "
+                f"(mapped index {idx})."
+            )
+        return displacement_vector[idx]
+
                 
     #koncové síly na prvku
     def element_end_forces(self, elem, displacement_vector=None):
@@ -2315,17 +2340,16 @@ class Model:
         if displacement_vector is None:
             u_global = self.get_element_displacements(elem)
         else:
-            displacement_vector = np.asarray(displacement_vector)
             di = self.dof_nodes[elem.i]
             dj = self.dof_nodes[elem.j]
             u_global = np.array([
-                displacement_vector[di.ux - 1],
-                displacement_vector[di.uy - 1],
-                displacement_vector[di.rz - 1],
-                displacement_vector[dj.ux - 1],
-                displacement_vector[dj.uy - 1],
-                displacement_vector[dj.rz - 1],
-            ], dtype=displacement_vector.dtype)
+                self._displacement_value_from_vector(displacement_vector, di.ux),
+                self._displacement_value_from_vector(displacement_vector, di.uy),
+                self._displacement_value_from_vector(displacement_vector, di.rz),
+                self._displacement_value_from_vector(displacement_vector, dj.ux),
+                self._displacement_value_from_vector(displacement_vector, dj.uy),
+                self._displacement_value_from_vector(displacement_vector, dj.rz),
+            ], dtype=np.asarray(displacement_vector).dtype)
         # převod do lokálního systému
         u_local = T @ u_global
         # koncové síly v lokálním systému
