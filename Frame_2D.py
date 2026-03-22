@@ -1776,6 +1776,14 @@ class Model:
         ys = element_data["base_y"] + scale * (element_data["sin"] * u_axial + element_data["cos"] * v)
         return xs, ys
 
+    def plot_dynamic_deformation_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
+        return self.plot_dynamic_response_animation(
+            scale=scale,
+            n_points=n_points,
+            frames_per_period=frames_per_period,
+            show=show,
+        )
+
     def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
         animation_data = self._dynamic_animation_setup(scale=scale, n_points=n_points, frames_per_period=frames_per_period)
         harmonic_full_vectors = animation_data["harmonic_full_vectors"]
@@ -1856,6 +1864,60 @@ class Model:
             U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
         return U_t
 
+    def dynamic_displacement_vector_at_time(self, t, reduced=False):
+        if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
+            raise ValueError("Dynamic steady-state solution must be solved before evaluating response in time.")
+
+        omega = float(self.dynamic_excitation_frequency)
+        if reduced:
+            harmonic_vectors = self.dynamic_harmonic_responses or {1: self.dynamic_response}
+            U_t = np.zeros_like(next(iter(harmonic_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            return U_t
+
+        harmonic_full_vectors = {
+            multiplier: self._dynamic_response_full_vector(response)
+            for multiplier, response in (self.dynamic_harmonic_responses or {1: self.dynamic_response}).items()
+        }
+        return self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+
+    def dynamic_deformation_in_dof(self, dof_id, t):
+        displacement_vector = self.dynamic_displacement_vector_at_time(t)
+        if dof_id < 1 or dof_id > displacement_vector.size:
+            return 0.0
+        return float(np.real(displacement_vector[dof_id - 1]))
+
+    def dynamic_element_end_forces(self, elem, t):
+        displacement_vector = self.dynamic_displacement_vector_at_time(t)
+        return self.element_end_forces(elem, displacement_vector=displacement_vector)
+
+    def dynamic_reaction_in_dof(self, dof_id, t):
+        if dof_id in self.dof_map:
+            return None
+
+        force = 0.0
+        displacement_vector = self.dynamic_displacement_vector_at_time(t)
+
+        for elem in self.elements.values():
+            dof_ids = self.element_dof_ids(elem.id)
+            if dof_id not in dof_ids:
+                continue
+
+            Kg = self.element_global_stiffness(elem)
+            u_elem = np.array([displacement_vector[d - 1] if d > 0 and d <= displacement_vector.size else 0.0 for d in dof_ids], dtype=float)
+            idx = dof_ids.index(dof_id)
+            force += Kg[idx, :] @ u_elem
+
+            for eload in self.element_loads:
+                if eload.element != elem.id:
+                    continue
+                L, alpha = self.element_geometry(elem.id)
+                Fe = global_element_load(eload.qx, eload.qz, L, alpha)
+                force -= Fe[idx]
+
+        return float(np.real(force))
+
     def _sample_time_values(self, time_values, max_samples=12):
         if len(time_values) <= max_samples:
             return time_values
@@ -1912,6 +1974,15 @@ class Model:
             values.append(val)
 
         return Xbase, Ybase, X, Y, values
+
+    def plot_dynamic_normal_force_animation(self, scale=None, frames_per_period=60, npts=40, show=False):
+        return self.plot_dynamic_internal_force_animation(kind="N", scale=scale, frames_per_period=frames_per_period, npts=npts, show=show)
+
+    def plot_dynamic_shear_force_animation(self, scale=None, frames_per_period=60, npts=40, show=False):
+        return self.plot_dynamic_internal_force_animation(kind="V", scale=scale, frames_per_period=frames_per_period, npts=npts, show=show)
+
+    def plot_dynamic_bending_moment_animation(self, scale=None, frames_per_period=60, npts=40, show=False):
+        return self.plot_dynamic_internal_force_animation(kind="M", scale=scale, frames_per_period=frames_per_period, npts=npts, show=show)
 
     def plot_dynamic_internal_force_animation(self, kind="M", scale=None, frames_per_period=60, npts=40, show=False):
         kind = kind.upper()
