@@ -1055,7 +1055,7 @@ class Model:
             ax.plot(xs, ys, 'r', linewidth=2)
 
         lam = self.eigenvalues[mode_index]
-        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\lambda$ = {lam:.2f}")
+        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\alpha_{cr}$ = {lam:.2f}")
         ax.axis("equal")
         ax.set_axis_off()
 
