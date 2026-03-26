@@ -1057,7 +1057,7 @@ class Model:
         active_dofs = sorted(self.dof_map, key=self.dof_map.get)
         lines.append(f"DOFs = {active_dofs}")
         for i, lam in enumerate(self.eigenvalues[:self.number_of_eigenvectors], start=1):
-            lines.append(f"lambda_{i} = {lam:.6e}")
+            lines.append(f"alpha_cr_{i} = {lam:.6e}")
             lines.append(f"U_{i} = {self.eigenvectors[:, i - 1]}")
 
         return "\n".join(lines)
@@ -1240,7 +1240,7 @@ class Model:
         lines.append(f"Reduced DOFs: {self.dynamic_dofs}")
 
         for i, lam in enumerate(self.eigenvalues, start=1):
-            lines.append(f"alpha_cr_{i} = {lam:.6e}")
+            lines.append(f"omega^2_{i} = {lam:.6e}")
             mode = self.eigenvectors[:, i - 1]
             lines.append(f"U_{i} = {mode}")
 
