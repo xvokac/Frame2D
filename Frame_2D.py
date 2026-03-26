@@ -950,21 +950,28 @@ class Model:
             freq_hz = self.frf_omega_values / (2 * np.pi)
             mobility_i = 1j * self.frf_omega_values * U_i
             accelerance_i = -(self.frf_omega_values ** 2) * U_i
+            zero_omega_mask = np.isclose(self.frf_omega_values, 0.0)
 
             magnitude_db = 20.0 * np.log10(np.maximum(np.abs(U_i), 1e-30))
             ax_abs.plot(freq_hz, magnitude_db, label=f"dof {dof_id}")
             ax_phase.plot(freq_hz, np.arctan2(np.imag(U_i), np.real(U_i)), label=f"dof {dof_id}")
 
             magnitude_mobility_db = 20.0 * np.log10(np.maximum(np.abs(mobility_i), 1e-30))
+            magnitude_mobility_db = np.where(zero_omega_mask, np.nan, magnitude_mobility_db)
+            phase_mobility = np.arctan2(np.imag(mobility_i), np.real(mobility_i))
+            phase_mobility = np.where(zero_omega_mask, np.nan, phase_mobility)
             ax_abs_mobility.plot(freq_hz, magnitude_mobility_db, label=f"dof {dof_id}")
             ax_phase_mobility.plot(
-                freq_hz, np.arctan2(np.imag(mobility_i), np.real(mobility_i)), label=f"dof {dof_id}"
+                freq_hz, phase_mobility, label=f"dof {dof_id}"
             )
 
             magnitude_accelerance_db = 20.0 * np.log10(np.maximum(np.abs(accelerance_i), 1e-30))
+            magnitude_accelerance_db = np.where(zero_omega_mask, np.nan, magnitude_accelerance_db)
+            phase_accelerance = np.arctan2(np.imag(accelerance_i), np.real(accelerance_i))
+            phase_accelerance = np.where(zero_omega_mask, np.nan, phase_accelerance)
             ax_abs_accelerance.plot(freq_hz, magnitude_accelerance_db, label=f"dof {dof_id}")
             ax_phase_accelerance.plot(
-                freq_hz, np.arctan2(np.imag(accelerance_i), np.real(accelerance_i)), label=f"dof {dof_id}"
+                freq_hz, phase_accelerance, label=f"dof {dof_id}"
             )
 
         ax_abs.set_ylabel(r"|U_i| [dB, ref. 1]")
