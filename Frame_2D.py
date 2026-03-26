@@ -943,15 +943,17 @@ class Model:
         for dof_id in dof_ids:
             idx = self.frf_reduced_dofs.index(dof_id)
             U_i = self.frf_response_matrix[:, idx]
-            ax_abs.plot(self.frf_omega_values, np.abs(U_i), label=f"dof {dof_id}")
-            ax_phase.plot(self.frf_omega_values, np.arctan2(np.imag(U_i), np.real(U_i)), label=f"dof {dof_id}")
+            freq_hz = self.frf_omega_values / (2 * np.pi)
+            magnitude_db = 20.0 * np.log10(np.maximum(np.abs(U_i), 1e-30))
+            ax_abs.plot(freq_hz, magnitude_db, label=f"dof {dof_id}")
+            ax_phase.plot(freq_hz, np.arctan2(np.imag(U_i), np.real(U_i)), label=f"dof {dof_id}")
 
-        ax_abs.set_ylabel("|U_i|")
+        ax_abs.set_ylabel(r"|U_i| [dB, ref. 1]")
         ax_abs.grid(True, linestyle="--", alpha=0.4)
         ax_abs.legend(loc="best")
-        ax_abs.set_title("FRF (F = cos(omega * t), unit amplitude)")
+        ax_abs.set_title(r"FRF (F = cos(2\pi f t), unit amplitude)")
 
-        ax_phase.set_xlabel("omega")
+        ax_phase.set_xlabel("f [Hz]")
         ax_phase.set_ylabel("phase [rad]")
         ax_phase.grid(True, linestyle="--", alpha=0.4)
         ax_phase.legend(loc="best")
