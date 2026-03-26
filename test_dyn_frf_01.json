@@ -7,33 +7,33 @@
     },
     {
       "id": 2,
-      "x": 0.0,
-      "y": 3.0
-    },
-    {
-      "id": 3,
-      "x": 3.0,
-      "y": 3.0
-    },
-    {
-      "id": 4,
       "x": 3.0,
       "y": 0.0
     },
     {
-      "id": 5,
+      "id": 3,
       "x": 1.5,
-      "y": 3.0
+      "y": 0.0
+    },
+    {
+      "id": 4,
+      "x": 0.5,
+      "y": 0.0
+    },
+    {
+      "id": 5,
+      "x": 1.0,
+      "y": 0.0
     },
     {
       "id": 6,
-      "x": 0.0,
-      "y": 1.5
+      "x": 2.0,
+      "y": 0.0
     },
     {
       "id": 7,
-      "x": 3.0,
-      "y": 1.5
+      "x": 2.5,
+      "y": 0.0
     }
   ],
   "dof_nodes": [
@@ -98,38 +98,38 @@
   "elements": [
     {
       "id": 1,
-      "i": 2,
-      "j": 5,
+      "i": 1,
+      "j": 4,
       "section": 1
     },
     {
       "id": 2,
+      "i": 4,
+      "j": 5,
+      "section": 1
+    },
+    {
+      "id": 3,
       "i": 5,
       "j": 3,
       "section": 1
     },
     {
-      "id": 3,
-      "i": 6,
-      "j": 2,
-      "section": 1
-    },
-    {
       "id": 4,
-      "i": 1,
+      "i": 3,
       "j": 6,
       "section": 1
     },
     {
       "id": 5,
-      "i": 7,
-      "j": 3,
+      "i": 6,
+      "j": 7,
       "section": 1
     },
     {
       "id": 6,
-      "i": 4,
-      "j": 7,
+      "i": 7,
+      "j": 2,
       "section": 1
     }
   ],
@@ -141,7 +141,7 @@
       "rz": false
     },
     {
-      "node": 4,
+      "node": 2,
       "ux": true,
       "uy": true,
       "rz": false
@@ -149,63 +149,41 @@
   ],
   "nodal_loads": [],
   "element_loads": [],
-  "problem_type": "Dynamic - Natural frequencies and modes",
+  "problem_type": "Dynamic - FRF",
   "number_of_eigenvectors": 5,
   "mass": [
     {
-      "dof_id": 4,
-      "mass": 1000.0
+      "dof_id": 2,
+      "mass": 286.0
     },
     {
-      "dof_id": 7,
-      "mass": 1000.0
+      "dof_id": 5,
+      "mass": 286.0
     },
     {
-      "dof_id": 13,
-      "mass": 1000.0
+      "dof_id": 8,
+      "mass": 286.0
+    },
+    {
+      "dof_id": 11,
+      "mass": 286.0
     },
     {
       "dof_id": 14,
-      "mass": 1000.0
+      "mass": 286.0
     },
     {
-      "dof_id": 16,
-      "mass": 1000.0
+      "dof_id": 17,
+      "mass": 286.0
     },
     {
-      "dof_id": 19,
-      "mass": 1000.0
+      "dof_id": 20,
+      "mass": 286.0
     }
   ],
-  "dynamic_nodal_forces": [
-    {
-      "dof_id": 14,
-      "Re_F": 1.0,
-      "Im_F": 0.0,
-      "Omega": 6.0,
-      "multiplier": 1
-    }
-  ],
-  "damping_ratio": [
-    {
-      "mode": 1,
-      "zeta": 0.05
-    },
-    {
-      "mode": 2,
-      "zeta": 0.05
-    },
-    {
-      "mode": 3,
-      "zeta": 0.05
-    },
-    {
-      "mode": 4,
-      "zeta": 0.05
-    },
-    {
-      "mode": 5,
-      "zeta": 0.05
-    }
-  ]
+  "dynamic_nodal_forces": [],
+  "damping_ratio": [],
+  "frf_harmonic_dof_id": 14,
+  "frf_max_omega": 50.0,
+  "frf_delta_omega": 0.1
 }

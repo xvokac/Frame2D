@@ -6,7 +6,7 @@ import argparse
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from matplotlib.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation, FFMpegWriter, HTMLWriter, PillowWriter
 from collections import defaultdict
 from scipy.linalg import eig
 
@@ -245,7 +245,14 @@ class Model:
         self.dynamic_harmonic_modal_coordinates = {}
         self.dynamic_harmonic_responses = {}
         self.dynamic_excitation_frequency = None
+        self.frf_harmonic_dof_id = None
+        self.frf_max_omega = 0.0
+        self.frf_delta_omega = 0.0
+        self.frf_omega_values = np.array([])
+        self.frf_response_matrix = np.array([[]], dtype=complex)
+        self.frf_reduced_dofs = []
         self._last_animation = None
+        self._animations = []
 
     @classmethod
     def from_json(cls, path):
@@ -322,6 +329,19 @@ class Model:
                 )
             except (TypeError, ValueError):
                 continue
+        frf_dof = data.get("frf_harmonic_dof_id")
+        try:
+            model.frf_harmonic_dof_id = int(frf_dof) if frf_dof is not None else None
+        except (TypeError, ValueError):
+            model.frf_harmonic_dof_id = None
+        try:
+            model.frf_max_omega = float(data.get("frf_max_omega", 0.0))
+        except (TypeError, ValueError):
+            model.frf_max_omega = 0.0
+        try:
+            model.frf_delta_omega = float(data.get("frf_delta_omega", 0.0))
+        except (TypeError, ValueError):
+            model.frf_delta_omega = 0.0
 
         model.normalize_ids()
 
@@ -510,6 +530,9 @@ class Model:
                 {"mode": item.mode, "zeta": item.zeta}
                 for item in sorted(self.damping_ratio, key=lambda val: val.mode)
             ],
+            "frf_harmonic_dof_id": self.frf_harmonic_dof_id,
+            "frf_max_omega": self.frf_max_omega,
+            "frf_delta_omega": self.frf_delta_omega,
         }
 
 
@@ -858,14 +881,97 @@ class Model:
 
         return total_response, total_force, reduced_dofs
 
+    def solve_dynamic_frf(self):
+        eigvals, eigvecs, reduced_dofs = self.solve_dynamic()
 
-    def _validate_stability_qx(self):
-        invalid_elements = [load.element for load in self.element_loads if abs(load.qx) > 1e-12]
-        if invalid_elements:
-            ids = sorted(set(invalid_elements))
+        if self.frf_harmonic_dof_id is None:
+            raise ValueError("Dynamic - FRF requires 'frf_harmonic_dof_id'.")
+        if self.frf_harmonic_dof_id not in reduced_dofs:
             raise ValueError(
-                "Stability analysis requires qx = 0 on all elements (constant N per element). "
-                f"Invalid element ids: {ids}"
+                f"FRF harmonic dof_id {self.frf_harmonic_dof_id} must be one of reduced DOFs: {reduced_dofs}"
+            )
+        if self.frf_max_omega < 0:
+            raise ValueError("frf_max_omega must be >= 0.")
+        if self.frf_delta_omega <= 0:
+            raise ValueError("frf_delta_omega must be > 0.")
+
+        damping_lookup = {item.mode: float(item.zeta) for item in self.damping_ratio}
+        omega_values = np.arange(0.0, self.frf_max_omega + 0.5 * self.frf_delta_omega, self.frf_delta_omega, dtype=float)
+        if omega_values.size == 0:
+            omega_values = np.array([0.0], dtype=float)
+
+        force = np.zeros(len(reduced_dofs), dtype=complex)
+        force[reduced_dofs.index(self.frf_harmonic_dof_id)] = 1.0 + 0.0j
+
+        frf_response = np.zeros((omega_values.size, len(reduced_dofs)), dtype=complex)
+        for omega_idx, omega_exc in enumerate(omega_values):
+            q_omega = np.zeros(len(eigvals), dtype=complex)
+            for mode_idx in range(len(eigvals)):
+                phi_i = eigvecs[:, mode_idx]
+                omega_i = np.sqrt(max(eigvals[mode_idx], 0.0))
+                zeta_i = damping_lookup.get(mode_idx + 1, 0.0)
+                f_norm = np.dot(phi_i.T, force)
+                denominator = (omega_i ** 2 - omega_exc ** 2) + 2j * zeta_i * omega_i * omega_exc
+                if abs(denominator) < 1e-12:
+                    denominator = denominator + 1e-12j
+                q_omega[mode_idx] = f_norm / denominator
+            frf_response[omega_idx, :] = eigvecs @ q_omega
+
+        self.frf_omega_values = omega_values
+        self.frf_response_matrix = frf_response
+        self.frf_reduced_dofs = list(reduced_dofs)
+        self.dynamic_force_vector = force
+        self.dynamic_response = frf_response[-1, :]
+        self.dynamic_modal_coordinates = np.zeros(len(eigvals), dtype=complex)
+        self.dynamic_excitation_frequency = None
+
+        return omega_values, frf_response, reduced_dofs
+
+    def plot_dynamic_frf(self, dof_ids=None, show=False):
+        if self.frf_omega_values.size == 0 or self.frf_response_matrix.size == 0:
+            raise ValueError("No FRF results available. Run solve_dynamic_frf() first.")
+
+        if dof_ids is None:
+            dof_ids = self.frf_reduced_dofs
+        dof_ids = [int(d) for d in dof_ids if int(d) in self.frf_reduced_dofs]
+        if not dof_ids:
+            raise ValueError("No valid dof_ids selected for FRF plot.")
+
+        fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+        ax_abs, ax_phase = axes
+        fig_mobility, axes_mobility = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+        ax_abs_mobility, ax_phase_mobility = axes_mobility
+        fig_accelerance, axes_accelerance = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+        ax_abs_accelerance, ax_phase_accelerance = axes_accelerance
+
+        for dof_id in dof_ids:
+            idx = self.frf_reduced_dofs.index(dof_id)
+            U_i = self.frf_response_matrix[:, idx]
+            freq_hz = self.frf_omega_values / (2 * np.pi)
+            mobility_i = 1j * self.frf_omega_values * U_i
+            accelerance_i = -(self.frf_omega_values ** 2) * U_i
+            zero_omega_mask = np.isclose(self.frf_omega_values, 0.0)
+
+            magnitude_db = 20.0 * np.log10(np.maximum(np.abs(U_i), 1e-30))
+            ax_abs.plot(freq_hz, magnitude_db, label=f"dof {dof_id}")
+            ax_phase.plot(freq_hz, np.arctan2(np.imag(U_i), np.real(U_i)), label=f"dof {dof_id}")
+
+            magnitude_mobility_db = 20.0 * np.log10(np.maximum(np.abs(mobility_i), 1e-30))
+            magnitude_mobility_db = np.where(zero_omega_mask, np.nan, magnitude_mobility_db)
+            phase_mobility = np.arctan2(np.imag(mobility_i), np.real(mobility_i))
+            phase_mobility = np.where(zero_omega_mask, np.nan, phase_mobility)
+            ax_abs_mobility.plot(freq_hz, magnitude_mobility_db, label=f"dof {dof_id}")
+            ax_phase_mobility.plot(
+                freq_hz, phase_mobility, label=f"dof {dof_id}"
+            )
+
+            magnitude_accelerance_db = 20.0 * np.log10(np.maximum(np.abs(accelerance_i), 1e-30))
+            magnitude_accelerance_db = np.where(zero_omega_mask, np.nan, magnitude_accelerance_db)
+            phase_accelerance = np.arctan2(np.imag(accelerance_i), np.real(accelerance_i))
+            phase_accelerance = np.where(zero_omega_mask, np.nan, phase_accelerance)
+            ax_abs_accelerance.plot(freq_hz, magnitude_accelerance_db, label=f"dof {dof_id}")
+            ax_phase_accelerance.plot(
+                freq_hz, phase_accelerance, label=f"dof {dof_id}"
             )
 
     def _get_full_displacement_vector(self):
@@ -1061,6 +1167,215 @@ class Model:
 
         if show:
             plt.show()
+        return fig, axes
+
+
+    def _validate_stability_qx(self):
+        invalid_elements = [load.element for load in self.element_loads if abs(load.qx) > 1e-12]
+        if invalid_elements:
+            ids = sorted(set(invalid_elements))
+            raise ValueError(
+                "Stability analysis requires qx = 0 on all elements (constant N per element). "
+                f"Invalid element ids: {ids}"
+            )
+
+    def _get_full_displacement_vector(self):
+        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
+        U_full = np.zeros(max_dof)
+        for dof, idx in self.dof_map.items():
+            U_full[dof - 1] = self.U[idx]
+        return U_full
+
+    def _element_axial_force(self, elem, U_full):
+        sec = self.sections[elem.section_id]
+        L, alpha = self.element_geometry(elem.id)
+        dof_ids = self.element_dof_ids(elem.id)
+        u_global = np.array([U_full[dof - 1] for dof in dof_ids])
+        u_local = local_displacements(u_global, alpha)
+
+        qx, qz = self.get_element_loads(elem)
+        f_local = element_local_forces(sec.E, sec.A, sec.I, L, u_local, qx=qx, qz=qz)
+
+        n_start = -f_local[0]
+        n_end = f_local[3]
+        return 0.5 * (n_start + n_end)
+
+    def assemble_global_geometric_stiffness(self, axial_forces):
+        K_sigma = np.zeros((self.ndof, self.ndof))
+
+        for elem in self.elements.values():
+            L, alpha = self.element_geometry(elem.id)
+            N = axial_forces[elem.id]
+
+            Kl_sigma = local_geometric_stiffness(N, L)
+            Kg_sigma = global_geometric_stiffness(Kl_sigma, alpha)
+
+            dof_ids = self.element_dof_ids(elem.id)
+
+            for i in range(6):
+                I = dof_ids[i]
+                if I not in self.dof_map:
+                    continue
+                ii = self.dof_map[I]
+
+                for j in range(6):
+                    J = dof_ids[j]
+                    if J not in self.dof_map:
+                        continue
+                    jj = self.dof_map[J]
+                    K_sigma[ii, jj] += Kg_sigma[i, j]
+
+        return K_sigma
+
+    def solve_stability(self):
+        self._validate_stability_qx()
+
+        self.solve()
+
+        axial_forces = self.get_stability_axial_forces()
+
+        K = self.assemble_global_stiffness()
+        K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
+
+        eigvals, eigvecs = eig(K, -K_sigma) # Matice K_sigma může být singulární, proto pozor na použitý algoritmus výpočtu vlastního problému
+
+        order = np.argsort(eigvals.real)
+        eigvals = eigvals[order].real
+        eigvecs = eigvecs[:, order].real
+
+        self.eigenvalues = eigvals
+        self.eigenvectors = eigvecs
+
+        return eigvals, eigvecs
+
+    def get_stability_axial_forces(self):
+        """Vrátí osové síly prvků pro sestavení geometrické matice tuhosti."""
+        U_full = self._get_full_displacement_vector()
+        axial_forces = {}
+        for elem in self.elements.values():
+            axial_forces[elem.id] = self._element_axial_force(elem, U_full)
+        return axial_forces
+
+    def format_stability_results(self):
+        if len(self.eigenvalues) == 0:
+            return "No stability results available."
+
+        lines = ["STABILITY EIGEN SOLUTION:"]
+        active_dofs = sorted(self.dof_map, key=self.dof_map.get)
+        lines.append(f"DOFs = {active_dofs}")
+        for i, lam in enumerate(self.eigenvalues[:self.number_of_eigenvectors], start=1):
+            lines.append(f"alpha_cr_{i} = {lam:.6e}")
+            lines.append(f"U_{i} = {self.eigenvectors[:, i - 1]}")
+
+        return "\n".join(lines)
+
+    def print_stability_results(self):
+        print(self.format_stability_results())
+
+    def _stability_shape_full_vector(self, mode_index):
+        if len(self.eigenvalues) == 0:
+            raise ValueError("No stability results available. Run solve_stability() first.")
+        if mode_index < 0 or mode_index >= self.eigenvectors.shape[1]:
+            raise IndexError("Mode index out of range.")
+
+        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
+        U_mode = np.zeros(max_dof)
+
+        mode_vec = self.eigenvectors[:, mode_index]
+        for dof, idx in self.dof_map.items():
+            U_mode[dof - 1] = mode_vec[idx]
+
+        return U_mode
+
+    def plot_stability_shape(self, mode_index, scale=None, n_points=20, show=False):
+        U_mode = self._stability_shape_full_vector(mode_index)
+
+        if scale is None:
+            max_disp = np.max(np.abs(U_mode))
+            if max_disp == 0:
+                scale = 1.0
+            else:
+                size = max(
+                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
+                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
+                )
+                scale = 0.2 * size / max_disp
+
+        fig, ax = plt.subplots()
+        plotted_x = []
+        plotted_y = []
+        plotted_x = []
+        plotted_y = []
+
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], 'k--', linewidth=1)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+
+        for elem in self.elements.values():
+            i, j = elem.i, elem.j
+            L, alpha = self.element_geometry(elem.id)
+            c = np.cos(alpha)
+            s = np.sin(alpha)
+
+            di = self.dof_nodes[i]
+            dj = self.dof_nodes[j]
+            ni = self.nodes[di.node_id]
+            xi, yi = ni.x, ni.y
+
+            u_global = np.array([
+                U_mode[di.ux - 1],
+                U_mode[di.uy - 1],
+                U_mode[di.rz - 1],
+                U_mode[dj.ux - 1],
+                U_mode[dj.uy - 1],
+                U_mode[dj.rz - 1],
+            ])
+
+            T = np.array([
+                [c, s, 0, 0, 0, 0],
+                [-s, c, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0],
+                [0, 0, 0, c, s, 0],
+                [0, 0, 0, -s, c, 0],
+                [0, 0, 0, 0, 0, 1],
+            ])
+            u_local = T @ u_global
+
+            v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
+            u1, u2 = u_local[0], u_local[3]
+
+            xs = []
+            ys = []
+            for xi_loc in np.linspace(0, 1, n_points):
+                N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
+                N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
+                N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
+                N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
+
+                v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
+                x_local = xi_loc * L
+                u_axial = (1 - xi_loc) * u1 + xi_loc * u2
+
+                xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
+                yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
+                xs.append(xg)
+                ys.append(yg)
+
+            ax.plot(xs, ys, 'r', linewidth=2)
+
+        lam = self.eigenvalues[mode_index]
+        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\alpha_{{cr}}$ = {lam:.2f}")
+        ax.axis("equal")
+        ax.set_axis_off()
+
+        if show:
+            plt.show()
 
     def plot_all_stability_shapes(self, show=False):
         n_modes = min(self.number_of_eigenvectors, self.eigenvectors.shape[1] if self.eigenvectors.ndim == 2 else 0)
@@ -1132,7 +1447,7 @@ class Model:
         lines.append(f"Reduced DOFs: {self.dynamic_dofs}")
 
         for i, lam in enumerate(self.eigenvalues, start=1):
-            lines.append(f"lambda_{i} = {lam:.6e}")
+            lines.append(f"omega^2_{i} = {lam:.6e}")
             mode = self.eigenvectors[:, i - 1]
             lines.append(f"U_{i} = {mode}")
 
@@ -1153,6 +1468,12 @@ class Model:
                 for i, q_i in enumerate(self.dynamic_modal_coordinates, start=1):
                     lines.append(f"q_{i} = {q_i}")
                 lines.append(f"u = {self.dynamic_response}")
+        elif self.frf_omega_values.size > 0 and self.frf_response_matrix.size > 0:
+            lines.append("")
+            lines.append("DYNAMIC FRF SOLUTION:")
+            lines.append(f"harmonic load dof_id = {self.frf_harmonic_dof_id}")
+            lines.append(f"omega range: 0 .. {self.frf_max_omega:.6e} (step {self.frf_delta_omega:.6e})")
+            lines.append(f"number of FRF points = {self.frf_omega_values.size}")
 
         return "\n".join(lines)
 
@@ -1373,6 +1694,8 @@ class Model:
                 scale = 0.1 * size / max_disp
 
         fig, ax = plt.subplots()
+        plotted_x = []
+        plotted_y = []
 
         # původní konstrukce
         for elem in self.elements.values():
@@ -1475,6 +1798,8 @@ class Model:
                     vmax_pos = (xg, yg)
 
             ax.plot(xs, ys, 'r', linewidth=2)
+            plotted_x.extend(xs)
+            plotted_y.extend(ys)
             #Popisek maxima na prutu
             if vmax_pos:
                 ax.text(
@@ -1504,6 +1829,8 @@ class Model:
             # deformovaná poloha uzlu
             x_def = node.x + scale * ux
             y_def = node.y + scale * uy
+            plotted_x.append(x_def)
+            plotted_y.append(y_def)
 
             # popisek v uzlu
             ax.text(
@@ -1518,7 +1845,7 @@ class Model:
             )
 
         #další nastavení grafu    
-        ax.axis("equal")
+        self._apply_plot_bounds(ax, plotted_x, plotted_y)
         plt.title(r"Deformation and values $(u^2+v^2)^{1/2}$")
         if show:
             plt.show()
@@ -1538,6 +1865,8 @@ class Model:
                 scale = 0.1 * size / max_disp
 
         fig, ax = plt.subplots()
+        plotted_x = []
+        plotted_y = []
 
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
@@ -1601,11 +1930,13 @@ class Model:
                 ys.append(yg)
 
             ax.plot(xs, ys, 'r', linewidth=2)
+            plotted_x.extend(xs)
+            plotted_y.extend(ys)
 
         omega = np.sqrt(max(self.eigenvalues[mode_index], 0.0))
         freq_hz = omega / (2 * np.pi)
         ax.set_title(fr"Shape mode no. {mode_index + 1}: $f$ = {freq_hz:.3f} Hz")
-        ax.axis("equal")
+        self._apply_plot_bounds(ax, plotted_x, plotted_y)
         ax.set_axis_off()
 
         if show:
@@ -1618,7 +1949,267 @@ class Model:
         if show:
             self.show_all_plots()
 
+    def clear_animation_references(self):
+        self._last_animation = None
+        self._animations = []
+
+    def _infer_animation_writer(self, output_path, writer=None):
+        if writer is not None:
+            return writer
+
+        suffix = output_path.lower().rsplit(".", 1)
+        extension = suffix[1] if len(suffix) == 2 else ""
+        writer_by_extension = {
+            "gif": "pillow",
+            "mp4": "ffmpeg",
+            "m4v": "ffmpeg",
+            "mov": "ffmpeg",
+            "html": "html",
+            "htm": "html",
+        }
+        if extension not in writer_by_extension:
+            raise ValueError(
+                "Unsupported animation export format. Use .gif, .mp4, .mov, .m4v, or .html, "
+                "or pass writer='pillow'/'ffmpeg'/'html'."
+            )
+        return writer_by_extension[extension]
+
+    def _build_animation_writer(self, output_path, writer=None, fps=None):
+        selected_writer = self._infer_animation_writer(output_path, writer=writer)
+        if fps is None:
+            fps = 20
+        fps = max(float(fps), 1.0)
+
+        if selected_writer == "pillow":
+            return PillowWriter(fps=fps)
+        if selected_writer == "ffmpeg":
+            if not FFMpegWriter.isAvailable():
+                raise RuntimeError(
+                    "FFmpeg writer is not available in the current environment. "
+                    "Use GIF export (.gif) or install FFmpeg for MP4/MOV export."
+                )
+            return FFMpegWriter(fps=fps)
+        if selected_writer == "html":
+            return HTMLWriter(fps=fps)
+        raise ValueError(f"Unsupported animation writer '{selected_writer}'.")
+
+    def export_animation(self, output_path, animation=None, writer=None, fps=None, dpi=120):
+        if animation is None:
+            animation = self._last_animation
+        if animation is None:
+            raise ValueError("No animation is available for export. Create an animation first.")
+
+        animation_writer = self._build_animation_writer(output_path, writer=writer, fps=fps)
+        animation.save(output_path, writer=animation_writer, dpi=dpi)
+        return output_path
+
+    def export_last_animation(self, output_path, writer=None, fps=None, dpi=120):
+        return self.export_animation(output_path, animation=self._last_animation, writer=writer, fps=fps, dpi=dpi)
+
+    def _create_animation_title(self, fig, initial_text=""):
+        fig.subplots_adjust(top=0.84)
+        return fig.text(
+            0.5,
+            0.965,
+            initial_text,
+            ha="center",
+            va="top",
+            bbox={
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.55,
+                "pad": 4,
+            },
+        )
+
+    def _structure_bounds(self):
+        xs = [node.x for node in self.nodes.values()]
+        ys = [node.y for node in self.nodes.values()]
+        if not xs or not ys:
+            return 0.0, 1.0, 0.0, 1.0
+        return min(xs), max(xs), min(ys), max(ys)
+
+    def _apply_plot_bounds(self, ax, x_values=None, y_values=None, margin_ratio=0.12, min_margin_ratio=0.04):
+        x_min, x_max, y_min, y_max = self._structure_bounds()
+
+        if x_values:
+            x_min = min(x_min, min(x_values))
+            x_max = max(x_max, max(x_values))
+        if y_values:
+            y_min = min(y_min, min(y_values))
+            y_max = max(y_max, max(y_values))
+
+        dx = max(x_max - x_min, 1e-9)
+        dy = max(y_max - y_min, 1e-9)
+        char_size = max(dx, dy, 1.0)
+        margin = max(margin_ratio * char_size, min_margin_ratio * char_size)
+
+        ax.set_xlim(x_min - margin, x_max + margin)
+        ax.set_ylim(y_min - margin, y_max + margin)
+        ax.set_aspect("equal", adjustable="box")
+
+    def _dynamic_animation_setup(self, scale=None, n_points=20, frames_per_period=60):
+        harmonic_full_vectors, omega, period, time_values = self._dynamic_time_history_vectors(frames_per_period)
+        if scale is None:
+            max_disp = max(np.max(np.abs(U_hat)) for U_hat in harmonic_full_vectors.values())
+            if max_disp == 0:
+                scale = 1.0
+            else:
+                size = max(
+                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
+                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
+                )
+                scale = 0.1 * size / max_disp
+
+        interpolation_points = np.linspace(0.0, 1.0, max(int(n_points), 2))
+        element_data = []
+        for elem in self.elements.values():
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            ni = self.nodes[di.node_id]
+            nj = self.nodes[dj.node_id]
+            L, alpha = self.element_geometry(elem.id)
+            c = np.cos(alpha)
+            s = np.sin(alpha)
+            transform = transformation_matrix(alpha)
+            base_x = ni.x + c * (interpolation_points * L)
+            base_y = ni.y + s * (interpolation_points * L)
+            N1 = 1 - 3 * interpolation_points ** 2 + 2 * interpolation_points ** 3
+            N2 = L * (interpolation_points - 2 * interpolation_points ** 2 + interpolation_points ** 3)
+            N3 = 3 * interpolation_points ** 2 - 2 * interpolation_points ** 3
+            N4 = L * (-interpolation_points ** 2 + interpolation_points ** 3)
+            axial_i = 1 - interpolation_points
+            axial_j = interpolation_points
+            element_data.append({
+                "element": elem,
+                "di": di,
+                "dj": dj,
+                "node_i": ni,
+                "node_j": nj,
+                "length": L,
+                "cos": c,
+                "sin": s,
+                "transform": transform,
+                "base_x": base_x,
+                "base_y": base_y,
+                "N1": N1,
+                "N2": N2,
+                "N3": N3,
+                "N4": N4,
+                "axial_i": axial_i,
+                "axial_j": axial_j,
+            })
+
+        sampled_time_values = self._sample_time_values(time_values)
+        bounds_x = []
+        bounds_y = []
+        for t in sampled_time_values:
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+            for data in element_data:
+                xs, ys = self._dynamic_deformed_coordinates(data, U_t, scale)
+                bounds_x.extend(xs)
+                bounds_y.extend(ys)
+
+        return {
+            "harmonic_full_vectors": harmonic_full_vectors,
+            "omega": omega,
+            "period": period,
+            "time_values": time_values,
+            "scale": scale,
+            "element_data": element_data,
+            "bounds_x": bounds_x,
+            "bounds_y": bounds_y,
+        }
+
+    def _dynamic_deformed_coordinates(self, element_data, displacement_vector, scale):
+        di = element_data["di"]
+        dj = element_data["dj"]
+        u_global = np.array([
+            displacement_vector[di.ux - 1],
+            displacement_vector[di.uy - 1],
+            displacement_vector[di.rz - 1],
+            displacement_vector[dj.ux - 1],
+            displacement_vector[dj.uy - 1],
+            displacement_vector[dj.rz - 1],
+        ], dtype=float)
+        u_local = element_data["transform"] @ u_global
+        u1, v1, phi1, u2, v2, phi2 = u_local
+        v = (
+            element_data["N1"] * v1
+            + element_data["N2"] * phi1
+            + element_data["N3"] * v2
+            + element_data["N4"] * phi2
+        )
+        u_axial = element_data["axial_i"] * u1 + element_data["axial_j"] * u2
+        xs = element_data["base_x"] + scale * (element_data["cos"] * u_axial - element_data["sin"] * v)
+        ys = element_data["base_y"] + scale * (element_data["sin"] * u_axial + element_data["cos"] * v)
+        return xs, ys
+
+    def plot_dynamic_deformation_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
+        return self.plot_dynamic_response_animation(
+            scale=scale,
+            n_points=n_points,
+            frames_per_period=frames_per_period,
+            show=show,
+        )
+
     def plot_dynamic_response_animation(self, scale=None, n_points=20, frames_per_period=60, show=False):
+        animation_data = self._dynamic_animation_setup(scale=scale, n_points=n_points, frames_per_period=frames_per_period)
+        harmonic_full_vectors = animation_data["harmonic_full_vectors"]
+        omega = animation_data["omega"]
+        period = animation_data["period"]
+        time_values = animation_data["time_values"]
+        scale = animation_data["scale"]
+        element_data = animation_data["element_data"]
+
+        fig, ax = plt.subplots()
+        title_artist = self._create_animation_title(fig)
+
+        for data in element_data:
+            ni = data["node_i"]
+            nj = data["node_j"]
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], "k--", linewidth=1)
+
+        self.plot_releases(ax)
+        self.plot_supports(ax)
+
+        deformed_lines = []
+        for _ in element_data:
+            line, = ax.plot([], [], "r", linewidth=2)
+            deformed_lines.append(line)
+
+        ax.axis("equal")
+        ax.set_axis_off()
+
+        def update(frame_index):
+            t = time_values[frame_index]
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+            for line, data in zip(deformed_lines, element_data):
+                xs, ys = self._dynamic_deformed_coordinates(data, U_t, scale)
+                line.set_data(xs, ys)
+            title_artist.set_text(
+                fr"Harmonic response: $u(t)=\Re\left(\sum_k \hat{{u}}_k e^{{ik\Omega t}}\right)$, "
+                fr"$t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
+            )
+            return deformed_lines
+
+        self._apply_plot_bounds(ax, animation_data["bounds_x"], animation_data["bounds_y"])
+        interval_ms = 1000 * period / len(time_values)
+        self._last_animation = FuncAnimation(
+            fig,
+            update,
+            frames=len(time_values),
+            interval=interval_ms,
+            blit=False,
+            repeat=True,
+        )
+        self._animations.append(self._last_animation)
+
+        update(0)
+        if show:
+            plt.show()
+
+    def _dynamic_time_history_vectors(self, frames_per_period):
         if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
             raise ValueError("Dynamic steady-state solution must be solved before animation.")
         if self.dynamic_excitation_frequency <= 0:
@@ -1631,104 +2222,354 @@ class Model:
         if not harmonic_full_vectors:
             harmonic_full_vectors = {1: self._dynamic_response_full_vector()}
 
+        omega = float(self.dynamic_excitation_frequency)
+        period = 2 * np.pi / omega
+        time_values = np.linspace(0.0, period, max(int(frames_per_period), 2), endpoint=False)
+        return harmonic_full_vectors, omega, period, time_values
+
+    def _compose_dynamic_frame_vector(self, harmonic_full_vectors, omega, t):
+        U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
+        for multiplier, U_hat in harmonic_full_vectors.items():
+            U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+        return U_t
+
+    def dynamic_displacement_vector_at_time(self, t, reduced=False):
+        if self.dynamic_excitation_frequency is None or self.dynamic_response.size == 0:
+            raise ValueError("Dynamic steady-state solution must be solved before evaluating response in time.")
+
+        omega = float(self.dynamic_excitation_frequency)
+        if reduced:
+            harmonic_vectors = self.dynamic_harmonic_responses or {1: self.dynamic_response}
+            U_t = np.zeros_like(next(iter(harmonic_vectors.values())), dtype=float)
+            for multiplier, U_hat in harmonic_vectors.items():
+                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            return U_t
+
+        harmonic_full_vectors = {
+            multiplier: self._dynamic_response_full_vector(response)
+            for multiplier, response in (self.dynamic_harmonic_responses or {1: self.dynamic_response}).items()
+        }
+        return self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+
+    def dynamic_deformation_in_dof(self, dof_id, t):
+        displacement_vector = self.dynamic_displacement_vector_at_time(t)
+        if dof_id < 1 or dof_id > displacement_vector.size:
+            return 0.0
+        return float(np.real(displacement_vector[dof_id - 1]))
+
+    def dynamic_element_end_forces(self, elem, t):
+        displacement_vector = self.dynamic_displacement_vector_at_time(t)
+        return self.element_end_forces(elem, displacement_vector=displacement_vector)
+
+    def dynamic_reaction_in_dof(self, dof_id, t):
+        if dof_id in self.dof_map:
+            return None
+
+        force = 0.0
+        displacement_vector = self.dynamic_displacement_vector_at_time(t)
+
+        for elem in self.elements.values():
+            dof_ids = self.element_dof_ids(elem.id)
+            if dof_id not in dof_ids:
+                continue
+
+            Kg = self.element_global_stiffness(elem)
+            u_elem = np.array([displacement_vector[d - 1] if d > 0 and d <= displacement_vector.size else 0.0 for d in dof_ids], dtype=float)
+            idx = dof_ids.index(dof_id)
+            force += Kg[idx, :] @ u_elem
+
+            for eload in self.element_loads:
+                if eload.element != elem.id:
+                    continue
+                L, alpha = self.element_geometry(elem.id)
+                Fe = global_element_load(eload.qx, eload.qz, L, alpha)
+                force -= Fe[idx]
+
+        return float(np.real(force))
+
+    def _sample_time_values(self, time_values, max_samples=12):
+        if len(time_values) <= max_samples:
+            return time_values
+        sample_indices = np.linspace(0, len(time_values) - 1, max_samples, dtype=int)
+        return time_values[sample_indices]
+
+    def _internal_force_diagram_data(self, elem, kind, scale, displacement_vector, npts=40):
+        di = self.dof_nodes[elem.i]
+        dj = self.dof_nodes[elem.j]
+
+        ni = self.nodes[di.node_id]
+        nj = self.nodes[dj.node_id]
+
+        xi, yi = ni.x, ni.y
+        xj, yj = nj.x, nj.y
+        dx = xj - xi
+        dy = yj - yi
+        L = np.hypot(dx, dy)
+        cx = dx / L
+        cy = dy / L
+        nx = -cy
+        ny = cx
+        if kind == "M":
+            nx = -nx
+            ny = -ny
+
+        forces = self.element_end_forces(elem, displacement_vector=displacement_vector)
+        qz = self.get_element_qz(elem)
+        xs = np.linspace(0, L, npts)
+
+        X = []
+        Y = []
+        Xbase = []
+        Ybase = []
+        values = []
+        for x in xs:
+            N, V, M = element_diagram(x, L, forces, qz)
+            if kind == "N":
+                val = np.real_if_close(N)
+            elif kind == "V":
+                val = np.real_if_close(V)
+            else:
+                val = np.real_if_close(M)
+            val = float(np.real(val))
+
+            xb = xi + cx * x
+            yb = yi + cy * x
+            xd = xb + nx * val * scale
+            yd = yb + ny * val * scale
+            X.append(xd)
+            Y.append(yd)
+            Xbase.append(xb)
+            Ybase.append(yb)
+            values.append(val)
+
+        return Xbase, Ybase, X, Y, values
+
+    def plot_dynamic_normal_force_animation(self, scale=None, frames_per_period=60, npts=40, show=False):
+        return self.plot_dynamic_internal_force_animation(kind="N", scale=scale, frames_per_period=frames_per_period, npts=npts, show=show)
+
+    def plot_dynamic_shear_force_animation(self, scale=None, frames_per_period=60, npts=40, show=False):
+        return self.plot_dynamic_internal_force_animation(kind="V", scale=scale, frames_per_period=frames_per_period, npts=npts, show=show)
+
+    def plot_dynamic_bending_moment_animation(self, scale=None, frames_per_period=60, npts=40, show=False):
+        return self.plot_dynamic_internal_force_animation(kind="M", scale=scale, frames_per_period=frames_per_period, npts=npts, show=show)
+
+    def plot_dynamic_internal_force_animation(self, kind="M", scale=None, frames_per_period=60, npts=40, show=False):
+        kind = kind.upper()
+        if kind not in ("N", "V", "M"):
+            raise ValueError("kind must be one of 'N', 'V', 'M'")
+
+        harmonic_full_vectors, omega, period, time_values = self._dynamic_time_history_vectors(frames_per_period)
+
         if scale is None:
-            max_disp = max(np.max(np.abs(U_hat)) for U_hat in harmonic_full_vectors.values())
-            if max_disp == 0:
+            max_val = 0.0
+            sampled_time_values = self._sample_time_values(time_values)
+            for t in sampled_time_values:
+                U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+                for elem in self.elements.values():
+                    forces = self.element_end_forces(elem, displacement_vector=U_t)
+                    if kind == "N":
+                        values = [forces[0], forces[3]]
+                    elif kind == "V":
+                        values = [forces[1], forces[4]]
+                    else:
+                        values = [forces[2], forces[5]]
+                    max_val = max(max_val, max(abs(float(np.real(v))) for v in values))
+            if max_val == 0:
                 scale = 1.0
             else:
-                size = max(
-                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
-                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
-                )
-                scale = 0.1 * size / max_disp
+                total_length = sum(self.element_geometry(elem.id)[0] for elem in self.elements.values())
+                L_ref = total_length / len(self.elements)
+                scale = 0.2 * L_ref / max_val
 
         fig, ax = plt.subplots()
+        title_artist = self._create_animation_title(fig)
 
+        diagram_lines = []
+        fill_patches = []
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
             dj = self.dof_nodes[elem.j]
             ni = self.nodes[di.node_id]
             nj = self.nodes[dj.node_id]
-            ax.plot([ni.x, nj.x], [ni.y, nj.y], "k--", linewidth=1)
+            ax.plot([ni.x, nj.x], [ni.y, nj.y], "k-", lw=1)
+
+            line, = ax.plot([], [], "r", linewidth=2)
+            patch = patches.Polygon([[ni.x, ni.y]], closed=True, color="r", alpha=0.25)
+            ax.add_patch(patch)
+            diagram_lines.append(line)
+            fill_patches.append(patch)
 
         self.plot_releases(ax)
         self.plot_supports(ax)
-
-        deformed_lines = []
-        for _ in self.elements.values():
-            line, = ax.plot([], [], "r", linewidth=2)
-            deformed_lines.append(line)
-
-        ax.axis("equal")
+        ax.set_aspect("equal", adjustable="box")
         ax.set_axis_off()
-
-        omega = float(self.dynamic_excitation_frequency)
-        period = 2 * np.pi / omega
-        time_values = np.linspace(0.0, period, max(int(frames_per_period), 2), endpoint=False)
 
         def update(frame_index):
             t = time_values[frame_index]
-            U_t = np.zeros_like(next(iter(harmonic_full_vectors.values())), dtype=float)
-            for multiplier, U_hat in harmonic_full_vectors.items():
-                U_t += np.real(U_hat * np.exp(1j * multiplier * omega * t))
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
 
-            for line, elem in zip(deformed_lines, self.elements.values()):
-                i, j = elem.i, elem.j
-                L, alpha = self.element_geometry(elem.id)
-                c = np.cos(alpha)
-                s = np.sin(alpha)
+            for line, patch, elem in zip(diagram_lines, fill_patches, self.elements.values()):
+                Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, U_t, npts=npts)
+                line.set_data(X, Y)
+                polygon_points = np.column_stack([
+                    np.array(X + list(reversed(Xbase))),
+                    np.array(Y + list(reversed(Ybase)))
+                ])
+                patch.set_xy(polygon_points)
 
-                di = self.dof_nodes[i]
-                dj = self.dof_nodes[j]
+            title_artist.set_text(
+                fr"Dynamic {kind} diagram: $t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
+            )
+            return diagram_lines + fill_patches
+
+        bounds_x = []
+        bounds_y = []
+        sampled_time_values = self._sample_time_values(time_values)
+        for t in sampled_time_values:
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+            for elem in self.elements.values():
+                Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, U_t, npts=npts)
+                bounds_x.extend(Xbase)
+                bounds_x.extend(X)
+                bounds_y.extend(Ybase)
+                bounds_y.extend(Y)
+        self._apply_plot_bounds(ax, bounds_x, bounds_y)
+        interval_ms = 1000 * period / len(time_values)
+        self._last_animation = FuncAnimation(
+            fig,
+            update,
+            frames=len(time_values),
+            interval=interval_ms,
+            blit=False,
+            repeat=True,
+        )
+        self._animations.append(self._last_animation)
+
+        update(0)
+        if show:
+            plt.show()
+
+    def plot_dynamic_results_dashboard(self, displacement_scale=None, force_scales=None, n_points=20, frames_per_period=60, npts=40, show=False):
+        animation_data = self._dynamic_animation_setup(
+            scale=displacement_scale,
+            n_points=n_points,
+            frames_per_period=frames_per_period,
+        )
+        harmonic_full_vectors = animation_data["harmonic_full_vectors"]
+        omega = animation_data["omega"]
+        period = animation_data["period"]
+        time_values = animation_data["time_values"]
+        element_data = animation_data["element_data"]
+        displacement_scale = animation_data["scale"]
+
+        if force_scales is None:
+            force_scales = {}
+        computed_force_scales = {}
+        sampled_time_values = self._sample_time_values(time_values)
+        for kind in ("M", "V", "N"):
+            explicit_scale = force_scales.get(kind)
+            if explicit_scale is not None:
+                computed_force_scales[kind] = explicit_scale
+                continue
+            max_val = 0.0
+            for t in sampled_time_values:
+                U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+                for elem in self.elements.values():
+                    forces = self.element_end_forces(elem, displacement_vector=U_t)
+                    if kind == "N":
+                        values = [forces[0], forces[3]]
+                    elif kind == "V":
+                        values = [forces[1], forces[4]]
+                    else:
+                        values = [forces[2], forces[5]]
+                    max_val = max(max_val, max(abs(float(np.real(v))) for v in values))
+            if max_val == 0:
+                computed_force_scales[kind] = 1.0
+            else:
+                total_length = sum(self.element_geometry(elem.id)[0] for elem in self.elements.values())
+                L_ref = total_length / len(self.elements)
+                computed_force_scales[kind] = 0.2 * L_ref / max_val
+
+        fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+        fig.subplots_adjust(top=0.90, wspace=0.08, hspace=0.08)
+        title_artist = self._create_animation_title(fig)
+        ax_response = axes[0, 0]
+        diagram_axes = {
+            "M": axes[0, 1],
+            "V": axes[1, 0],
+            "N": axes[1, 1],
+        }
+
+        for data in element_data:
+            ni = data["node_i"]
+            nj = data["node_j"]
+            ax_response.plot([ni.x, nj.x], [ni.y, nj.y], "k--", linewidth=1)
+        self.plot_releases(ax_response)
+        self.plot_supports(ax_response)
+        response_lines = []
+        for _ in element_data:
+            line, = ax_response.plot([], [], "r", linewidth=2)
+            response_lines.append(line)
+        self._apply_plot_bounds(ax_response, animation_data["bounds_x"], animation_data["bounds_y"])
+        ax_response.set_axis_off()
+        ax_response.set_title("Deformed shape")
+
+        diagram_artists = {}
+        for kind, ax in diagram_axes.items():
+            lines = []
+            patches_list = []
+            bounds_x = []
+            bounds_y = []
+            for elem in self.elements.values():
+                di = self.dof_nodes[elem.i]
+                dj = self.dof_nodes[elem.j]
                 ni = self.nodes[di.node_id]
-                xi, yi = ni.x, ni.y
+                nj = self.nodes[dj.node_id]
+                ax.plot([ni.x, nj.x], [ni.y, nj.y], "k-", lw=1)
+                line, = ax.plot([], [], "r", linewidth=2)
+                patch = patches.Polygon([[ni.x, ni.y]], closed=True, color="r", alpha=0.25)
+                ax.add_patch(patch)
+                lines.append(line)
+                patches_list.append(patch)
+            self.plot_releases(ax)
+            self.plot_supports(ax)
+            for t in sampled_time_values:
+                U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+                for elem in self.elements.values():
+                    Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, computed_force_scales[kind], U_t, npts=npts)
+                    bounds_x.extend(Xbase)
+                    bounds_x.extend(X)
+                    bounds_y.extend(Ybase)
+                    bounds_y.extend(Y)
+            self._apply_plot_bounds(ax, bounds_x, bounds_y)
+            ax.set_axis_off()
+            ax.set_title(f"{kind} diagram")
+            diagram_artists[kind] = {"lines": lines, "patches": patches_list}
 
-                u_global = np.array([
-                    U_t[di.ux - 1],
-                    U_t[di.uy - 1],
-                    U_t[di.rz - 1],
-                    U_t[dj.ux - 1],
-                    U_t[dj.uy - 1],
-                    U_t[dj.rz - 1],
-                ])
-
-                T = np.array([
-                    [c, s, 0, 0, 0, 0],
-                    [-s, c, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, c, s, 0],
-                    [0, 0, 0, -s, c, 0],
-                    [0, 0, 0, 0, 0, 1],
-                ])
-                u_local = T @ u_global
-
-                v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
-                u1, u2 = u_local[0], u_local[3]
-
-                xs = []
-                ys = []
-                for xi_loc in np.linspace(0, 1, n_points):
-                    N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
-                    N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
-                    N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
-                    N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
-
-                    v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
-                    x_local = xi_loc * L
-                    u_axial = (1 - xi_loc) * u1 + xi_loc * u2
-
-                    xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
-                    yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
-                    xs.append(xg)
-                    ys.append(yg)
-
+        def update(frame_index):
+            t = time_values[frame_index]
+            U_t = self._compose_dynamic_frame_vector(harmonic_full_vectors, omega, t)
+            for line, data in zip(response_lines, element_data):
+                xs, ys = self._dynamic_deformed_coordinates(data, U_t, displacement_scale)
                 line.set_data(xs, ys)
 
-            ax.set_title(
-                fr"Harmonic response: $u(t)=\Re\left(\sum_k \hat{{u}}_k e^{{ik\Omega t}}\right)$, "
-                fr"$t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
+            updated_artists = list(response_lines)
+            for kind, artists in diagram_artists.items():
+                for line, patch, elem in zip(artists["lines"], artists["patches"], self.elements.values()):
+                    Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, computed_force_scales[kind], U_t, npts=npts)
+                    line.set_data(X, Y)
+                    polygon_points = np.column_stack([
+                        np.array(X + list(reversed(Xbase))),
+                        np.array(Y + list(reversed(Ybase))),
+                    ])
+                    patch.set_xy(polygon_points)
+                updated_artists.extend(artists["lines"])
+                updated_artists.extend(artists["patches"])
+
+            title_artist.set_text(
+                fr"Dynamic steady-state response: $t={t:.3e}\,\mathrm{{s}}$, $T={period:.3e}\,\mathrm{{s}}$"
             )
-            return deformed_lines
+            return updated_artists
 
         interval_ms = 1000 * period / len(time_values)
         self._last_animation = FuncAnimation(
@@ -1739,11 +2580,11 @@ class Model:
             blit=False,
             repeat=True,
         )
+        self._animations.append(self._last_animation)
 
         update(0)
         if show:
             plt.show()
-
     #print reakce
     def format_reactions(self):
         R = self.compute_reactions()
@@ -1777,17 +2618,54 @@ class Model:
     def reaction_in_dof(self, dof_id):
         return self.compute_reactions().get(dof_id)
 
+    def _displacement_value_from_vector(self, displacement_vector, dof_id):
+        if dof_id == 0:
+            return 0.0
+
+        displacement_vector = np.asarray(displacement_vector)
+
+        if displacement_vector.ndim != 1:
+            raise ValueError("displacement_vector must be a 1D array-like sequence.")
+
+        vector_size = displacement_vector.shape[0]
+        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
+
+        if vector_size >= max_dof:
+            return displacement_vector[dof_id - 1]
+
+        idx = self.dof_map.get(dof_id)
+        if idx is None:
+            return 0.0
+        if idx >= vector_size:
+            raise IndexError(
+                f"Displacement vector with size {vector_size} does not contain active DOF {dof_id} "
+                f"(mapped index {idx})."
+            )
+        return displacement_vector[idx]
+
                 
     #koncové síly na prvku
-    def element_end_forces(self, elem):
+    def element_end_forces(self, elem, displacement_vector=None):
         sec = self.sections[elem.section_id]
         L, alpha = self.element_geometry(elem.id)
         # lokální tuhost — VOLÁ SE FUNKCE MIMO TŘÍDU
-        k_local = local_stiffness(sec.E, sec.A, sec.I, L)        
+        k_local = local_stiffness(sec.E, sec.A, sec.I, L)
         # transformace
         T = transformation_matrix(alpha)
         # globální posuny prvku
-        u_global = self.get_element_displacements(elem)
+        if displacement_vector is None:
+            u_global = self.get_element_displacements(elem)
+        else:
+            di = self.dof_nodes[elem.i]
+            dj = self.dof_nodes[elem.j]
+            u_global = np.array([
+                self._displacement_value_from_vector(displacement_vector, di.ux),
+                self._displacement_value_from_vector(displacement_vector, di.uy),
+                self._displacement_value_from_vector(displacement_vector, di.rz),
+                self._displacement_value_from_vector(displacement_vector, dj.ux),
+                self._displacement_value_from_vector(displacement_vector, dj.uy),
+                self._displacement_value_from_vector(displacement_vector, dj.rz),
+            ], dtype=np.asarray(displacement_vector).dtype)
         # převod do lokálního systému
         u_local = T @ u_global
         # koncové síly v lokálním systému
@@ -1973,6 +2851,8 @@ class Model:
         if scale is None:
             scale = self.auto_scale(kind)
         plt.figure()
+        plotted_x = []
+        plotted_y = []
         # nejdřív konstrukce
         for elem in self.elements.values():
             di = self.dof_nodes[elem.i]
@@ -1987,7 +2867,13 @@ class Model:
         # pak diagramy
         for elem in self.elements.values():
             self.plot_element_diagram(elem, kind, scale)
-        plt.axis("equal")
+            Xbase, Ybase, X, Y, _ = self._internal_force_diagram_data(elem, kind, scale, self.U)
+            plotted_x.extend(Xbase)
+            plotted_x.extend(X)
+            plotted_y.extend(Ybase)
+            plotted_y.extend(Y)
+        ax = plt.gca()
+        self._apply_plot_bounds(ax, plotted_x, plotted_y)
         plt.title(kind)
         if show:
             plt.show()
@@ -2259,6 +3145,34 @@ def main():
         "input_file",
         help="Cesta k vstupnímu JSON souboru (např. test_model.json).",
     )
+    parser.add_argument(
+        "--export-animation",
+        dest="export_animation_path",
+        help="Uloží vytvořenou animaci do souboru (.gif, .mp4, .mov, .m4v, .html).",
+    )
+    parser.add_argument(
+        "--animation-view",
+        choices=["dashboard", "response", "deformation", "N", "V", "M"],
+        default="dashboard",
+        help="Typ animace pro export v režimu 'Dynamic - steady state'.",
+    )
+    parser.add_argument(
+        "--animation-writer",
+        choices=["pillow", "ffmpeg", "html"],
+        help="Vynutí writer pro export animace. Pokud není zadán, odvodí se z přípony souboru.",
+    )
+    parser.add_argument(
+        "--animation-fps",
+        type=float,
+        default=20.0,
+        help="Snímková frekvence exportované animace.",
+    )
+    parser.add_argument(
+        "--animation-dpi",
+        type=int,
+        default=120,
+        help="DPI pro rasterový export animace.",
+    )
     args = parser.parse_args()
 
     model = Model.from_json(args.input_file)
@@ -2283,7 +3197,32 @@ def main():
     elif model.problem_type == "Dynamic - steady state":
         model.solve_dynamic_steady_state()
         model.print_dynamic_results()
-        model.plot_all_mode_shapes(show=True)
+        model.clear_animation_references()
+
+        animation_view = args.animation_view.upper() if args.animation_view in {"N", "V", "M"} else args.animation_view
+        show_animation = args.export_animation_path is None
+        if animation_view == "dashboard":
+            model.plot_dynamic_results_dashboard(show=show_animation)
+        elif animation_view in ("response", "deformation"):
+            model.plot_dynamic_response_animation(show=show_animation)
+        else:
+            model.plot_dynamic_internal_force_animation(kind=animation_view, show=show_animation)
+
+        if args.export_animation_path:
+            exported_path = model.export_last_animation(
+                args.export_animation_path,
+                writer=args.animation_writer,
+                fps=args.animation_fps,
+                dpi=args.animation_dpi,
+            )
+            print(f"Animation exported to: {exported_path}")
+        elif show_animation:
+            plt.show()
+
+    elif model.problem_type == "Dynamic - FRF":
+        model.solve_dynamic_frf()
+        model.print_dynamic_results()
+        model.plot_dynamic_frf(show=True)
 
     elif model.problem_type == "Stability":
         model.solve_stability()
