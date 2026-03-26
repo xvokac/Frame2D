@@ -939,14 +939,33 @@ class Model:
 
         fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
         ax_abs, ax_phase = axes
+        fig_mobility, axes_mobility = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+        ax_abs_mobility, ax_phase_mobility = axes_mobility
+        fig_accelerance, axes_accelerance = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+        ax_abs_accelerance, ax_phase_accelerance = axes_accelerance
 
         for dof_id in dof_ids:
             idx = self.frf_reduced_dofs.index(dof_id)
             U_i = self.frf_response_matrix[:, idx]
             freq_hz = self.frf_omega_values / (2 * np.pi)
+            mobility_i = 1j * self.frf_omega_values * U_i
+            accelerance_i = -(self.frf_omega_values ** 2) * U_i
+
             magnitude_db = 20.0 * np.log10(np.maximum(np.abs(U_i), 1e-30))
             ax_abs.plot(freq_hz, magnitude_db, label=f"dof {dof_id}")
             ax_phase.plot(freq_hz, np.arctan2(np.imag(U_i), np.real(U_i)), label=f"dof {dof_id}")
+
+            magnitude_mobility_db = 20.0 * np.log10(np.maximum(np.abs(mobility_i), 1e-30))
+            ax_abs_mobility.plot(freq_hz, magnitude_mobility_db, label=f"dof {dof_id}")
+            ax_phase_mobility.plot(
+                freq_hz, np.arctan2(np.imag(mobility_i), np.real(mobility_i)), label=f"dof {dof_id}"
+            )
+
+            magnitude_accelerance_db = 20.0 * np.log10(np.maximum(np.abs(accelerance_i), 1e-30))
+            ax_abs_accelerance.plot(freq_hz, magnitude_accelerance_db, label=f"dof {dof_id}")
+            ax_phase_accelerance.plot(
+                freq_hz, np.arctan2(np.imag(accelerance_i), np.real(accelerance_i)), label=f"dof {dof_id}"
+            )
 
         ax_abs.set_ylabel(r"|U_i| [dB, ref. 1]")
         ax_abs.grid(True, linestyle="--", alpha=0.4)
@@ -957,6 +976,30 @@ class Model:
         ax_phase.set_ylabel("phase [rad]")
         ax_phase.grid(True, linestyle="--", alpha=0.4)
         ax_phase.legend(loc="best")
+
+        ax_abs_mobility.set_ylabel(r"|i\omega U_i| [dB, ref. 1]")
+        ax_abs_mobility.grid(True, linestyle="--", alpha=0.4)
+        ax_abs_mobility.legend(loc="best")
+        ax_abs_mobility.set_title(r"Mobility FRF ($i\omega \cdot$ Compliance)")
+
+        ax_phase_mobility.set_xlabel("f [Hz]")
+        ax_phase_mobility.set_ylabel("phase [rad]")
+        ax_phase_mobility.grid(True, linestyle="--", alpha=0.4)
+        ax_phase_mobility.legend(loc="best")
+
+        ax_abs_accelerance.set_ylabel(r"|-\omega^2 U_i| [dB, ref. 1]")
+        ax_abs_accelerance.grid(True, linestyle="--", alpha=0.4)
+        ax_abs_accelerance.legend(loc="best")
+        ax_abs_accelerance.set_title(r"Accelerance FRF ($-\omega^2 \cdot$ Compliance)")
+
+        ax_phase_accelerance.set_xlabel("f [Hz]")
+        ax_phase_accelerance.set_ylabel("phase [rad]")
+        ax_phase_accelerance.grid(True, linestyle="--", alpha=0.4)
+        ax_phase_accelerance.legend(loc="best")
+
+        fig.tight_layout()
+        fig_mobility.tight_layout()
+        fig_accelerance.tight_layout()
 
         if show:
             plt.show()
