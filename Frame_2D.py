@@ -1060,7 +1060,7 @@ class Model:
             ax.plot(xs, ys, 'r', linewidth=2)
 
         lam = self.eigenvalues[mode_index]
-        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\lambda$ = {lam:.2f}")
+        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\alpha_{cr}$ = {lam:.2f}")
         ax.axis("equal")
         ax.set_axis_off()
 
@@ -1137,7 +1137,7 @@ class Model:
         lines.append(f"Reduced DOFs: {self.dynamic_dofs}")
 
         for i, lam in enumerate(self.eigenvalues, start=1):
-            lines.append(f"lambda_{i} = {lam:.6e}")
+            lines.append(f"alpha_cr_{i} = {lam:.6e}")
             mode = self.eigenvectors[:, i - 1]
             lines.append(f"U_{i} = {mode}")
 
