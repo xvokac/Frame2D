@@ -245,6 +245,12 @@ class Model:
         self.dynamic_harmonic_modal_coordinates = {}
         self.dynamic_harmonic_responses = {}
         self.dynamic_excitation_frequency = None
+        self.frf_harmonic_dof_id = None
+        self.frf_max_omega = 0.0
+        self.frf_delta_omega = 0.0
+        self.frf_omega_values = np.array([])
+        self.frf_response_matrix = np.array([[]], dtype=complex)
+        self.frf_reduced_dofs = []
         self._last_animation = None
         self._animations = []
 
@@ -323,6 +329,19 @@ class Model:
                 )
             except (TypeError, ValueError):
                 continue
+        frf_dof = data.get("frf_harmonic_dof_id")
+        try:
+            model.frf_harmonic_dof_id = int(frf_dof) if frf_dof is not None else None
+        except (TypeError, ValueError):
+            model.frf_harmonic_dof_id = None
+        try:
+            model.frf_max_omega = float(data.get("frf_max_omega", 0.0))
+        except (TypeError, ValueError):
+            model.frf_max_omega = 0.0
+        try:
+            model.frf_delta_omega = float(data.get("frf_delta_omega", 0.0))
+        except (TypeError, ValueError):
+            model.frf_delta_omega = 0.0
 
         model.normalize_ids()
 
@@ -511,6 +530,9 @@ class Model:
                 {"mode": item.mode, "zeta": item.zeta}
                 for item in sorted(self.damping_ratio, key=lambda val: val.mode)
             ],
+            "frf_harmonic_dof_id": self.frf_harmonic_dof_id,
+            "frf_max_omega": self.frf_max_omega,
+            "frf_delta_omega": self.frf_delta_omega,
         }
 
 
@@ -859,6 +881,85 @@ class Model:
 
         return total_response, total_force, reduced_dofs
 
+    def solve_dynamic_frf(self):
+        eigvals, eigvecs, reduced_dofs = self.solve_dynamic()
+
+        if self.frf_harmonic_dof_id is None:
+            raise ValueError("Dynamic - FRF requires 'frf_harmonic_dof_id'.")
+        if self.frf_harmonic_dof_id not in reduced_dofs:
+            raise ValueError(
+                f"FRF harmonic dof_id {self.frf_harmonic_dof_id} must be one of reduced DOFs: {reduced_dofs}"
+            )
+        if self.frf_max_omega < 0:
+            raise ValueError("frf_max_omega must be >= 0.")
+        if self.frf_delta_omega <= 0:
+            raise ValueError("frf_delta_omega must be > 0.")
+
+        damping_lookup = {item.mode: float(item.zeta) for item in self.damping_ratio}
+        omega_values = np.arange(0.0, self.frf_max_omega + 0.5 * self.frf_delta_omega, self.frf_delta_omega, dtype=float)
+        if omega_values.size == 0:
+            omega_values = np.array([0.0], dtype=float)
+
+        force = np.zeros(len(reduced_dofs), dtype=complex)
+        force[reduced_dofs.index(self.frf_harmonic_dof_id)] = 1.0 + 0.0j
+
+        frf_response = np.zeros((omega_values.size, len(reduced_dofs)), dtype=complex)
+        for omega_idx, omega_exc in enumerate(omega_values):
+            q_omega = np.zeros(len(eigvals), dtype=complex)
+            for mode_idx in range(len(eigvals)):
+                phi_i = eigvecs[:, mode_idx]
+                omega_i = np.sqrt(max(eigvals[mode_idx], 0.0))
+                zeta_i = damping_lookup.get(mode_idx + 1, 0.0)
+                f_norm = np.dot(phi_i.T, force)
+                denominator = (omega_i ** 2 - omega_exc ** 2) + 2j * zeta_i * omega_i * omega_exc
+                if abs(denominator) < 1e-12:
+                    denominator = denominator + 1e-12j
+                q_omega[mode_idx] = f_norm / denominator
+            frf_response[omega_idx, :] = eigvecs @ q_omega
+
+        self.frf_omega_values = omega_values
+        self.frf_response_matrix = frf_response
+        self.frf_reduced_dofs = list(reduced_dofs)
+        self.dynamic_force_vector = force
+        self.dynamic_response = frf_response[-1, :]
+        self.dynamic_modal_coordinates = np.zeros(len(eigvals), dtype=complex)
+        self.dynamic_excitation_frequency = None
+
+        return omega_values, frf_response, reduced_dofs
+
+    def plot_dynamic_frf(self, dof_ids=None, show=False):
+        if self.frf_omega_values.size == 0 or self.frf_response_matrix.size == 0:
+            raise ValueError("No FRF results available. Run solve_dynamic_frf() first.")
+
+        if dof_ids is None:
+            dof_ids = self.frf_reduced_dofs
+        dof_ids = [int(d) for d in dof_ids if int(d) in self.frf_reduced_dofs]
+        if not dof_ids:
+            raise ValueError("No valid dof_ids selected for FRF plot.")
+
+        fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+        ax_abs, ax_phase = axes
+
+        for dof_id in dof_ids:
+            idx = self.frf_reduced_dofs.index(dof_id)
+            U_i = self.frf_response_matrix[:, idx]
+            ax_abs.plot(self.frf_omega_values, np.abs(U_i), label=f"dof {dof_id}")
+            ax_phase.plot(self.frf_omega_values, np.arctan2(np.imag(U_i), np.real(U_i)), label=f"dof {dof_id}")
+
+        ax_abs.set_ylabel("|U_i|")
+        ax_abs.grid(True, linestyle="--", alpha=0.4)
+        ax_abs.legend(loc="best")
+        ax_abs.set_title("FRF (F = cos(omega * t), unit amplitude)")
+
+        ax_phase.set_xlabel("omega")
+        ax_phase.set_ylabel("phase [rad]")
+        ax_phase.grid(True, linestyle="--", alpha=0.4)
+        ax_phase.legend(loc="best")
+
+        if show:
+            plt.show()
+        return fig, axes
+
 
     def _validate_stability_qx(self):
         invalid_elements = [load.element for load in self.element_loads if abs(load.qx) > 1e-12]
@@ -1158,6 +1259,12 @@ class Model:
                 for i, q_i in enumerate(self.dynamic_modal_coordinates, start=1):
                     lines.append(f"q_{i} = {q_i}")
                 lines.append(f"u = {self.dynamic_response}")
+        elif self.frf_omega_values.size > 0 and self.frf_response_matrix.size > 0:
+            lines.append("")
+            lines.append("DYNAMIC FRF SOLUTION:")
+            lines.append(f"harmonic load dof_id = {self.frf_harmonic_dof_id}")
+            lines.append(f"omega range: 0 .. {self.frf_max_omega:.6e} (step {self.frf_delta_omega:.6e})")
+            lines.append(f"number of FRF points = {self.frf_omega_values.size}")
 
         return "\n".join(lines)
 
@@ -2902,6 +3009,11 @@ def main():
             print(f"Animation exported to: {exported_path}")
         elif show_animation:
             plt.show()
+
+    elif model.problem_type == "Dynamic - FRF":
+        model.solve_dynamic_frf()
+        model.print_dynamic_results()
+        model.plot_dynamic_frf(show=True)
 
     elif model.problem_type == "Stability":
         model.solve_stability()

@@ -13,6 +13,7 @@ class Frame2DGui:
         "Stability",
         "Dynamic - Natural frequencies and modes",
         "Dynamic - steady state",
+        "Dynamic - FRF",
     )
 
     def __init__(self, root: tk.Tk):
@@ -31,6 +32,9 @@ class Frame2DGui:
         self.mass = []
         self.dynamic_nodal_forces = []
         self.damping_ratio = []
+        self.frf_harmonic_dof_id = None
+        self.frf_max_omega = 0.0
+        self.frf_delta_omega = 0.1
 
         self.next_node_id = 1
         self.next_dof_node_id = 1
@@ -701,6 +705,9 @@ class Frame2DGui:
             "mass": self.mass,
             "dynamic_nodal_forces": self.dynamic_nodal_forces,
             "damping_ratio": self.damping_ratio,
+            "frf_harmonic_dof_id": self.frf_harmonic_dof_id,
+            "frf_max_omega": self.frf_max_omega,
+            "frf_delta_omega": self.frf_delta_omega,
         }
 
     def save_json(self):
@@ -750,6 +757,9 @@ class Frame2DGui:
         self.mass = data.get("mass", [])
         self.dynamic_nodal_forces = data.get("dynamic_nodal_forces", [])
         self.damping_ratio = data.get("damping_ratio", [])
+        self.frf_harmonic_dof_id = data.get("frf_harmonic_dof_id")
+        self.frf_max_omega = float(data.get("frf_max_omega", 0.0))
+        self.frf_delta_omega = float(data.get("frf_delta_omega", 0.1))
 
         self.next_node_id = max(self.nodes.keys(), default=0) + 1
         self.next_dof_node_id = max(self.dof_nodes.keys(), default=0) + 1
@@ -817,6 +827,10 @@ class Frame2DGui:
                 self.show_reactions(model.format_dynamic_results())
                 model.clear_animation_references()
                 model.plot_dynamic_results_dashboard(show=True)
+            elif model.problem_type == "Dynamic - FRF":
+                model.solve_dynamic_frf()
+                self.show_reactions(model.format_dynamic_results())
+                model.plot_dynamic_frf(show=True)
             elif model.problem_type == "Stability":
                 model.solve_stability()
                 self.show_reactions(model.format_stability_results())
@@ -929,6 +943,9 @@ class Frame2DGui:
         ttk.Label(header, text="number_of_eigenvectors").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         number_of_eigenvectors_var = tk.StringVar(value=str(self.number_of_eigenvectors))
         ttk.Entry(header, textvariable=number_of_eigenvectors_var, width=12).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        frf_harmonic_dof_id_var = tk.StringVar(value="" if self.frf_harmonic_dof_id is None else str(self.frf_harmonic_dof_id))
+        frf_max_omega_var = tk.StringVar(value=str(self.frf_max_omega))
+        frf_delta_omega_var = tk.StringVar(value=str(self.frf_delta_omega))
 
         switcher = ttk.Frame(special_tab)
         switcher.pack(fill=tk.X, padx=8, pady=(4, 8))
@@ -981,6 +998,15 @@ class Frame2DGui:
             "Damping ratio (one row per considered mode shape)",
             ["mode", "zeta"],
         )
+        frf_frame = ttk.Frame(table_host)
+        table_frames["frf params"] = frf_frame
+        ttk.Label(frf_frame, text="Dynamic - FRF parameters").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(frf_frame, text="harmonic load dof_id").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(frf_frame, textvariable=frf_harmonic_dof_id_var, width=14).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(frf_frame, text="max omega_FRF").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(frf_frame, textvariable=frf_max_omega_var, width=14).grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(frf_frame, text="delta omega_FRF").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(frf_frame, textvariable=frf_delta_omega_var, width=14).grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
         active_special_table = {"name": None}
 
@@ -1002,6 +1028,11 @@ class Frame2DGui:
             text="Damping ratio",
             command=lambda: show_special_table("damping ratio"),
         ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            switcher,
+            text="Dynamic - FRF params",
+            command=lambda: show_special_table("frf params"),
+        ).pack(side=tk.LEFT, padx=4)
 
         def apply_changes():
             try:
@@ -1010,6 +1041,9 @@ class Frame2DGui:
                     {
                         "problem_type": problem_type_var.get(),
                         "number_of_eigenvectors": number_of_eigenvectors_var.get(),
+                        "frf_harmonic_dof_id": frf_harmonic_dof_id_var.get(),
+                        "frf_max_omega": frf_max_omega_var.get(),
+                        "frf_delta_omega": frf_delta_omega_var.get(),
                     },
                 )
                 self.draw_scene()
@@ -1303,6 +1337,20 @@ class Frame2DGui:
         if number_of_eigenvectors < 1:
             raise ValueError("number_of_eigenvectors musí být >= 1.")
         self.number_of_eigenvectors = number_of_eigenvectors
+
+        try:
+            frf_dof_value = special_config.get("frf_harmonic_dof_id", self.frf_harmonic_dof_id)
+            self.frf_harmonic_dof_id = int(frf_dof_value) if frf_dof_value not in (None, "") else None
+        except (TypeError, ValueError) as exc:
+            raise ValueError("frf_harmonic_dof_id musí být celé číslo nebo prázdné.") from exc
+        try:
+            self.frf_max_omega = float(special_config.get("frf_max_omega", self.frf_max_omega))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("frf_max_omega musí být číslo.") from exc
+        try:
+            self.frf_delta_omega = float(special_config.get("frf_delta_omega", self.frf_delta_omega))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("frf_delta_omega musí být číslo.") from exc
 
         self.next_section_id = max(self.sections.keys(), default=0) + 1
         self.next_node_id = max(self.nodes.keys(), default=0) + 1
