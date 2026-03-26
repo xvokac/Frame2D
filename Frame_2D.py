@@ -974,196 +974,39 @@ class Model:
                 freq_hz, phase_accelerance, label=f"dof {dof_id}"
             )
 
-    def _get_full_displacement_vector(self):
-        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
-        U_full = np.zeros(max_dof)
-        for dof, idx in self.dof_map.items():
-            U_full[dof - 1] = self.U[idx]
-        return U_full
+        ax_abs.set_ylabel(r"|U_i| [dB, ref. 1]")
+        ax_abs.grid(True, linestyle="--", alpha=0.4)
+        ax_abs.legend(loc="best")
+        ax_abs.set_title(r"FRF (F = cos(2\pi f t), unit amplitude)")
 
-    def _element_axial_force(self, elem, U_full):
-        sec = self.sections[elem.section_id]
-        L, alpha = self.element_geometry(elem.id)
-        dof_ids = self.element_dof_ids(elem.id)
-        u_global = np.array([U_full[dof - 1] for dof in dof_ids])
-        u_local = local_displacements(u_global, alpha)
+        ax_phase.set_xlabel("f [Hz]")
+        ax_phase.set_ylabel("phase [rad]")
+        ax_phase.grid(True, linestyle="--", alpha=0.4)
+        ax_phase.legend(loc="best")
 
-        qx, qz = self.get_element_loads(elem)
-        f_local = element_local_forces(sec.E, sec.A, sec.I, L, u_local, qx=qx, qz=qz)
+        ax_abs_mobility.set_ylabel(r"|i\omega U_i| [dB, ref. 1]")
+        ax_abs_mobility.grid(True, linestyle="--", alpha=0.4)
+        ax_abs_mobility.legend(loc="best")
+        ax_abs_mobility.set_title(r"Mobility FRF ($i\omega \cdot$ Compliance)")
 
-        n_start = -f_local[0]
-        n_end = f_local[3]
-        return 0.5 * (n_start + n_end)
+        ax_phase_mobility.set_xlabel("f [Hz]")
+        ax_phase_mobility.set_ylabel("phase [rad]")
+        ax_phase_mobility.grid(True, linestyle="--", alpha=0.4)
+        ax_phase_mobility.legend(loc="best")
 
-    def assemble_global_geometric_stiffness(self, axial_forces):
-        K_sigma = np.zeros((self.ndof, self.ndof))
+        ax_abs_accelerance.set_ylabel(r"|-\omega^2 U_i| [dB, ref. 1]")
+        ax_abs_accelerance.grid(True, linestyle="--", alpha=0.4)
+        ax_abs_accelerance.legend(loc="best")
+        ax_abs_accelerance.set_title(r"Accelerance FRF ($-\omega^2 \cdot$ Compliance)")
 
-        for elem in self.elements.values():
-            L, alpha = self.element_geometry(elem.id)
-            N = axial_forces[elem.id]
+        ax_phase_accelerance.set_xlabel("f [Hz]")
+        ax_phase_accelerance.set_ylabel("phase [rad]")
+        ax_phase_accelerance.grid(True, linestyle="--", alpha=0.4)
+        ax_phase_accelerance.legend(loc="best")
 
-            Kl_sigma = local_geometric_stiffness(N, L)
-            Kg_sigma = global_geometric_stiffness(Kl_sigma, alpha)
-
-            dof_ids = self.element_dof_ids(elem.id)
-
-            for i in range(6):
-                I = dof_ids[i]
-                if I not in self.dof_map:
-                    continue
-                ii = self.dof_map[I]
-
-                for j in range(6):
-                    J = dof_ids[j]
-                    if J not in self.dof_map:
-                        continue
-                    jj = self.dof_map[J]
-                    K_sigma[ii, jj] += Kg_sigma[i, j]
-
-        return K_sigma
-
-    def solve_stability(self):
-        self._validate_stability_qx()
-
-        self.solve()
-
-        axial_forces = self.get_stability_axial_forces()
-
-        K = self.assemble_global_stiffness()
-        K_sigma = self.assemble_global_geometric_stiffness(axial_forces)
-
-        eigvals, eigvecs = eig(K, -K_sigma) # Matice K_sigma může být singulární, proto pozor na použitý algoritmus výpočtu vlastního problému
-
-        order = np.argsort(eigvals.real)
-        eigvals = eigvals[order].real
-        eigvecs = eigvecs[:, order].real
-
-        self.eigenvalues = eigvals
-        self.eigenvectors = eigvecs
-
-        return eigvals, eigvecs
-
-    def get_stability_axial_forces(self):
-        """Vrátí osové síly prvků pro sestavení geometrické matice tuhosti."""
-        U_full = self._get_full_displacement_vector()
-        axial_forces = {}
-        for elem in self.elements.values():
-            axial_forces[elem.id] = self._element_axial_force(elem, U_full)
-        return axial_forces
-
-    def format_stability_results(self):
-        if len(self.eigenvalues) == 0:
-            return "No stability results available."
-
-        lines = ["STABILITY EIGEN SOLUTION:"]
-        active_dofs = sorted(self.dof_map, key=self.dof_map.get)
-        lines.append(f"DOFs = {active_dofs}")
-        for i, lam in enumerate(self.eigenvalues[:self.number_of_eigenvectors], start=1):
-            lines.append(f"alpha_cr_{i} = {lam:.6e}")
-            lines.append(f"U_{i} = {self.eigenvectors[:, i - 1]}")
-
-        return "\n".join(lines)
-
-    def print_stability_results(self):
-        print(self.format_stability_results())
-
-    def _stability_shape_full_vector(self, mode_index):
-        if len(self.eigenvalues) == 0:
-            raise ValueError("No stability results available. Run solve_stability() first.")
-        if mode_index < 0 or mode_index >= self.eigenvectors.shape[1]:
-            raise IndexError("Mode index out of range.")
-
-        max_dof = max(max(dn.ux, dn.uy, dn.rz) for dn in self.dof_nodes.values())
-        U_mode = np.zeros(max_dof)
-
-        mode_vec = self.eigenvectors[:, mode_index]
-        for dof, idx in self.dof_map.items():
-            U_mode[dof - 1] = mode_vec[idx]
-
-        return U_mode
-
-    def plot_stability_shape(self, mode_index, scale=None, n_points=20, show=False):
-        U_mode = self._stability_shape_full_vector(mode_index)
-
-        if scale is None:
-            max_disp = np.max(np.abs(U_mode))
-            if max_disp == 0:
-                scale = 1.0
-            else:
-                size = max(
-                    max(n.x for n in self.nodes.values()) - min(n.x for n in self.nodes.values()),
-                    max(n.y for n in self.nodes.values()) - min(n.y for n in self.nodes.values()),
-                )
-                scale = 0.2 * size / max_disp
-
-        fig, ax = plt.subplots()
-
-        for elem in self.elements.values():
-            di = self.dof_nodes[elem.i]
-            dj = self.dof_nodes[elem.j]
-            ni = self.nodes[di.node_id]
-            nj = self.nodes[dj.node_id]
-            ax.plot([ni.x, nj.x], [ni.y, nj.y], 'k--', linewidth=1)
-
-        self.plot_releases(ax)
-        self.plot_supports(ax)
-
-        for elem in self.elements.values():
-            i, j = elem.i, elem.j
-            L, alpha = self.element_geometry(elem.id)
-            c = np.cos(alpha)
-            s = np.sin(alpha)
-
-            di = self.dof_nodes[i]
-            dj = self.dof_nodes[j]
-            ni = self.nodes[di.node_id]
-            xi, yi = ni.x, ni.y
-
-            u_global = np.array([
-                U_mode[di.ux - 1],
-                U_mode[di.uy - 1],
-                U_mode[di.rz - 1],
-                U_mode[dj.ux - 1],
-                U_mode[dj.uy - 1],
-                U_mode[dj.rz - 1],
-            ])
-
-            T = np.array([
-                [c, s, 0, 0, 0, 0],
-                [-s, c, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0],
-                [0, 0, 0, c, s, 0],
-                [0, 0, 0, -s, c, 0],
-                [0, 0, 0, 0, 0, 1],
-            ])
-            u_local = T @ u_global
-
-            v1, phi1, v2, phi2 = u_local[1], u_local[2], u_local[4], u_local[5]
-            u1, u2 = u_local[0], u_local[3]
-
-            xs = []
-            ys = []
-            for xi_loc in np.linspace(0, 1, n_points):
-                N1 = 1 - 3 * xi_loc ** 2 + 2 * xi_loc ** 3
-                N2 = L * (xi_loc - 2 * xi_loc ** 2 + xi_loc ** 3)
-                N3 = 3 * xi_loc ** 2 - 2 * xi_loc ** 3
-                N4 = L * (-xi_loc ** 2 + xi_loc ** 3)
-
-                v = N1 * v1 + N2 * phi1 + N3 * v2 + N4 * phi2
-                x_local = xi_loc * L
-                u_axial = (1 - xi_loc) * u1 + xi_loc * u2
-
-                xg = xi + c * (x_local + scale * u_axial) - s * (scale * v)
-                yg = yi + s * (x_local + scale * u_axial) + c * (scale * v)
-                xs.append(xg)
-                ys.append(yg)
-
-            ax.plot(xs, ys, 'r', linewidth=2)
-
-        lam = self.eigenvalues[mode_index]
-        ax.set_title(fr"Eigen shape no. {mode_index+1}: $\alpha_{cr}$ = {lam:.2f}")
-        ax.axis("equal")
-        ax.set_axis_off()
+        fig.tight_layout()
+        fig_mobility.tight_layout()
+        fig_accelerance.tight_layout()
 
         if show:
             plt.show()
