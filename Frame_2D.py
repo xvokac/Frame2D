@@ -977,7 +977,7 @@ class Model:
         ax_abs.set_ylabel(r"|U_i| [dB, ref. 1]")
         ax_abs.grid(True, linestyle="--", alpha=0.4)
         ax_abs.legend(loc="best")
-        ax_abs.set_title(r"FRF (F = cos(2\pi f t), unit amplitude)")
+        ax_abs.set_title(r"Compliance FRF ($F = \cos(2\pi f t)$ at DOF {frf_harmonic_dof_id})")
 
         ax_phase.set_xlabel("f [Hz]")
         ax_phase.set_ylabel("phase [rad]")
