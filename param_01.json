@@ -1,0 +1,116 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "id": 2,
+      "x": 20.0,
+      "y": 0.0
+    },
+    {
+      "id": 3,
+      "x": 1.0,
+      "y": 0.0
+    },
+    {
+      "id": 4,
+      "x": 2.0,
+      "y": 0.0
+    }
+  ],
+  "dof_nodes": [
+    {
+      "id": 1,
+      "node": 1,
+      "ux": 1,
+      "uy": 2,
+      "rz": 3
+    },
+    {
+      "id": 2,
+      "node": 2,
+      "ux": 4,
+      "uy": 5,
+      "rz": 6
+    },
+    {
+      "id": 3,
+      "node": 3,
+      "ux": 7,
+      "uy": 8,
+      "rz": 9
+    },
+    {
+      "id": 4,
+      "node": 4,
+      "ux": 10,
+      "uy": 11,
+      "rz": 12
+    }
+  ],
+  "sections": [
+    {
+      "id": 1,
+      "E": 210.0,
+      "A": 1.0,
+      "I": 1.0
+    }
+  ],
+  "elements": [
+    {
+      "id": 1,
+      "i": 1,
+      "j": 3,
+      "section": 1
+    },
+    {
+      "id": 2,
+      "i": 3,
+      "j": 4,
+      "section": 1
+    },
+    {
+      "id": 3,
+      "i": 4,
+      "j": 2,
+      "section": 1
+    }
+  ],
+  "supports": [
+    {
+      "node": 1,
+      "ux": true,
+      "uy": true,
+      "rz": false
+    },
+    {
+      "node": 2,
+      "ux": false,
+      "uy": true,
+      "rz": false
+    }
+  ],
+  "nodal_loads": [
+    {
+      "dof_node": 3,
+      "Fx": 0.0,
+      "Fy": -100.0,
+      "Mz": 0.0
+    },
+    {
+      "dof_node": 4,
+      "Fx": 0.0,
+      "Fy": -100.0,
+      "Mz": 0.0
+    }
+  ],
+  "element_loads": [],
+  "problem_type": "Static",
+  "number_of_eigenvectors": 3,
+  "mass": [],
+  "dynamic_nodal_forces": [],
+  "damping_ratio": []
+}
