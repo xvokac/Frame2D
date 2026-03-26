@@ -974,17 +974,17 @@ class Model:
                 freq_hz, phase_accelerance, label=f"dof {dof_id}"
             )
 
-        ax_abs.set_ylabel(r"|U_i| [dB, ref. 1]")
+        ax_abs.set_ylabel(r"|$U_i$| [dB, ref. 1]")
         ax_abs.grid(True, linestyle="--", alpha=0.4)
         ax_abs.legend(loc="best")
-        ax_abs.set_title(r"FRF (F = cos(2\pi f t), unit amplitude)")
+        ax_abs.set_title(rf"Compliance FRF ($F = \cos(\omega \cdot t)$ at DOF {self.frf_harmonic_dof_id})")
 
         ax_phase.set_xlabel("f [Hz]")
         ax_phase.set_ylabel("phase [rad]")
         ax_phase.grid(True, linestyle="--", alpha=0.4)
         ax_phase.legend(loc="best")
 
-        ax_abs_mobility.set_ylabel(r"|i\omega U_i| [dB, ref. 1]")
+        ax_abs_mobility.set_ylabel(r"|$i\omega U_i$| [dB, ref. 1]")
         ax_abs_mobility.grid(True, linestyle="--", alpha=0.4)
         ax_abs_mobility.legend(loc="best")
         ax_abs_mobility.set_title(r"Mobility FRF ($i\omega \cdot$ Compliance)")
@@ -994,7 +994,7 @@ class Model:
         ax_phase_mobility.grid(True, linestyle="--", alpha=0.4)
         ax_phase_mobility.legend(loc="best")
 
-        ax_abs_accelerance.set_ylabel(r"|-\omega^2 U_i| [dB, ref. 1]")
+        ax_abs_accelerance.set_ylabel(r"|$-\omega^2 U_i$| [dB, ref. 1]")
         ax_abs_accelerance.grid(True, linestyle="--", alpha=0.4)
         ax_abs_accelerance.legend(loc="best")
         ax_abs_accelerance.set_title(r"Accelerance FRF ($-\omega^2 \cdot$ Compliance)")
