@@ -476,6 +476,8 @@ class Model:
             for item in self.damping_ratio
             if int(item.mode) >= 1
         ]
+        if self.frf_harmonic_dof_id is not None:
+            self.frf_harmonic_dof_id = dof_id_map.get(self.frf_harmonic_dof_id)
 
     def to_json_data(self):
         return {
@@ -1010,6 +1012,9 @@ class Model:
 
         if show:
             plt.show()
+        else:
+            plt.close(fig_mobility)
+            plt.close(fig_accelerance)
         return fig, axes
 
 
