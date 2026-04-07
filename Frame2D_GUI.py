@@ -18,7 +18,7 @@ class Frame2DGui:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Frame2D - editor a solver")
+        self.root.title("Frame2D - editor and solver")
 
         self.nodes = {}
         self.dof_nodes = {}
